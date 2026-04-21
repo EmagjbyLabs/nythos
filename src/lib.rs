@@ -1,0 +1,14 @@
+//!
+//! Public core library for Nythos.
+//!
+//! `nythos-core` contains domain logic and trait contracts only.
+//! It intentionally excludes HTTP, storage drivers, and other infrastructure.
+
+pub mod auth;
+pub mod domain;
+pub mod error;
+pub mod ports;
+pub mod rbac;
+pub mod session;
+
+pub use error::{AuthError, NythosResult};
