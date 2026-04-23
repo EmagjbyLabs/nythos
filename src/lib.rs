@@ -11,5 +11,7 @@ pub mod ports;
 pub mod rbac;
 pub mod session;
 
-pub use domain::{Email, Password, RoleId, SessionId, TenantId, UserId};
+pub use domain::{
+    Email, Password, RoleId, SessionId, Tenant, TenantId, TenantSettings, User, UserId, UserStatus,
+};
 pub use error::{AuthError, NythosResult};
