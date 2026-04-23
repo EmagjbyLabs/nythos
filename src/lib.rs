@@ -16,3 +16,4 @@ pub use domain::{
     Email, Password, RoleId, SessionId, Tenant, TenantId, TenantSettings, User, UserId, UserStatus,
 };
 pub use error::{AuthError, NythosResult};
+pub use session::{RefreshToken, Session};
