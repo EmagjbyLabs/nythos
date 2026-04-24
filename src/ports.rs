@@ -3,8 +3,8 @@
 //! Implementations of these ports live outside the core crate.
 
 use crate::{
-    Email, NythosResult, PasswordHash, RefreshToken, Role, RoleAssignment, RoleId, Session,
-    SessionId, TenantId, User, UserId, UserStatus,
+    AccessToken, Claims, Email, NythosResult, Password, PasswordHash, RefreshToken, Role,
+    RoleAssignment, RoleId, Session, SessionId, TenantId, User, UserId, UserStatus,
 };
 
 /// Domain-facing input used when creating a new user inside a tenant.
@@ -215,6 +215,40 @@ pub trait SessionStore {
     fn revoke_all_for_user(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<()>;
 }
 
+/// Pasword hashing port used by registration and login flows.
+///
+/// The expected outer implementation is Argon2id. This contract exists to keep
+/// the core infrastructure-agnostic, not to treat weak hashing algorithms as
+/// equivalent alternatives.
+pub trait PasswordHasher {
+    /// Hashes a validated raw password into a stored password-hash value.
+    fn hash(&self, password: &Password) -> NythosResult<PasswordHash>;
+
+    /// Verifies a validated raw password against a stored hash.
+    fn verify(&self, password: &Password, hash: &PasswordHash) -> NythosResult<bool>;
+}
+
+/// Token signing port used to issue and verify signed access tokens.
+///
+/// This contract operates on core domain types only.  It must not expose HTTP,
+/// bearer-header, or concrete JWT-library types at the boundary.
+pub trait TokenSigner {
+    /// Signs a structured claim set into an access token.
+    fn sign(&self, claims: &Claims) -> NythosResult<AccessToken>;
+
+    /// Verifies an access token and returns the structured claims it carries.
+    fn verify(&self, token: &AccessToken) -> NythosResult<Claims>;
+}
+
+/// Revocation-checking port used by authenticated request flows.
+///
+/// Outer layers typically verify the access token first, then use this contract
+/// to reject requests whose owning session has been revoked.
+pub trait RevocationChecker {
+    /// Returns whether the provided session has been revoked.
+    fn is_revoked(&self, session_id: SessionId) -> NythosResult<bool>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -222,10 +256,16 @@ mod tests {
         SessionStore, UserRepository,
     };
     use crate::{
-        AuthError, Email, PasswordHash, Permission, RefreshToken, Role, RoleAssignment, RoleId,
-        Session, SessionId, TenantId, User, UserId, UserStatus,
+        AccessToken, AuthError, Claims, Email, Password, PasswordHash, Permission, RefreshToken,
+        Role, RoleAssignment, RoleId, Session, SessionId, TenantId, User, UserId, UserStatus,
+        ports::{PasswordHasher, RevocationChecker, TokenSigner},
     };
-    use std::{cell::RefCell, collections::BTreeMap, rc::Rc, time::SystemTime};
+    use std::{
+        cell::RefCell,
+        collections::{BTreeMap, BTreeSet},
+        rc::Rc,
+        time::SystemTime,
+    };
 
     type TestStore = BTreeMap<(TenantId, UserId), (User, PasswordHash)>;
 
@@ -772,5 +812,101 @@ mod tests {
 
         assert!(store.find_by_refresh_token(&refresh_a).unwrap().is_none());
         assert!(store.find_by_refresh_token(&refresh_b).unwrap().is_some());
+    }
+
+    #[derive(Default)]
+    struct TestPasswordHasher;
+
+    impl PasswordHasher for TestPasswordHasher {
+        fn hash(&self, password: &Password) -> crate::NythosResult<PasswordHash> {
+            PasswordHash::new(format!("argon2id${}", password.as_str()))
+        }
+
+        fn verify(&self, password: &Password, hash: &PasswordHash) -> crate::NythosResult<bool> {
+            Ok(hash.as_str() == format!("argon2id${}", password.as_str()))
+        }
+    }
+
+    #[derive(Default)]
+    struct TestTokenSigner;
+
+    impl TokenSigner for TestTokenSigner {
+        fn sign(&self, claims: &Claims) -> crate::NythosResult<AccessToken> {
+            AccessToken::new(format!(
+                "signed:{}:{}",
+                claims.subject(),
+                claims.tenant_id()
+            ))
+        }
+
+        fn verify(&self, token: &AccessToken) -> crate::NythosResult<Claims> {
+            if token.as_str().trim().is_empty() {
+                return Err(AuthError::InvalidCredentials);
+            }
+
+            Claims::access(
+                UserId::generate(),
+                TenantId::generate(),
+                SystemTime::UNIX_EPOCH,
+                std::time::Duration::from_secs(300),
+            )
+        }
+    }
+
+    #[derive(Default)]
+    struct TestRevocationChecker {
+        revoked: RefCell<BTreeSet<SessionId>>,
+    }
+
+    impl RevocationChecker for TestRevocationChecker {
+        fn is_revoked(&self, session_id: SessionId) -> crate::NythosResult<bool> {
+            Ok(self.revoked.borrow().contains(&session_id))
+        }
+    }
+
+    #[test]
+    fn password_hasher_contract_supports_hash_and_verify() {
+        let hasher = TestPasswordHasher;
+        let password = Password::new("super-secret-password").unwrap();
+
+        let hash = hasher.hash(&password).unwrap();
+
+        assert!(hash.as_str().starts_with("argon2id$"));
+        assert!(hasher.verify(&password, &hash).unwrap());
+        assert!(
+            !hasher
+                .verify(&Password::new("another-password").unwrap(), &hash)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn token_signer_contract_operates_on_core_claims_and_access_tokens() {
+        let signer = TestTokenSigner;
+        let claims = Claims::access(
+            UserId::generate(),
+            TenantId::generate(),
+            SystemTime::UNIX_EPOCH,
+            std::time::Duration::from_secs(300),
+        )
+        .unwrap();
+
+        let token = signer.sign(&claims).unwrap();
+        let verified = signer.verify(&token).unwrap();
+
+        assert!(!token.as_str().is_empty());
+        assert_eq!(verified.purpose(), &crate::TokenPurpose::Access);
+    }
+
+    #[test]
+    fn revocation_checker_contract_reports_session_revocation_state() {
+        let checker = TestRevocationChecker::default();
+        let session_id = SessionId::generate();
+
+        assert!(!checker.is_revoked(session_id).unwrap());
+
+        checker.revoked.borrow_mut().insert(session_id);
+
+        assert!(checker.is_revoked(session_id).unwrap());
     }
 }
