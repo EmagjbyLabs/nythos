@@ -2,6 +2,7 @@ use nythos_core::{
     AccessToken, AuthError, Claims, Email, NewUser, NythosResult, Password, PasswordHash,
     PasswordHasher, RefreshToken, RefreshTokenRotation, RegisterInput, RegisterService, SessionId,
     SessionRecord, SessionStore, TenantId, TokenSigner, User, UserId, UserRepository, UserStatus,
+    ports::UserCredentials,
 };
 
 use std::{
@@ -11,7 +12,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-type TestUserStore = BTreeMap<(TenantId, UserId), User>;
+type TestUserStore = BTreeMap<(TenantId, UserId), (User, PasswordHash)>;
 type TestSessionStoreMap = BTreeMap<String, SessionRecord>;
 
 #[derive(Clone)]
@@ -37,8 +38,10 @@ impl UserRepository for InMemoryUserRepository {
             .users
             .borrow()
             .iter()
-            .find(|((stored_tenant, _), user)| *stored_tenant == tenant_id && user.email() == email)
-            .map(|(_, user)| user.clone()))
+            .find(|((stored_tenant, _), (user, _))| {
+                *stored_tenant == tenant_id && user.email() == email
+            })
+            .map(|(_, (user, _))| user.clone()))
     }
 
     fn find_by_id(
@@ -46,14 +49,33 @@ impl UserRepository for InMemoryUserRepository {
         tenant_id: TenantId,
         user_id: UserId,
     ) -> crate::NythosResult<Option<User>> {
-        Ok(self.users.borrow().get(&(tenant_id, user_id)).cloned())
+        Ok(self
+            .users
+            .borrow()
+            .get(&(tenant_id, user_id))
+            .map(|(user, _)| user.clone()))
+    }
+
+    fn find_credentials_by_email(
+        &self,
+        tenant_id: TenantId,
+        email: &Email,
+    ) -> nythos_core::NythosResult<Option<UserCredentials>> {
+        Ok(self
+            .users
+            .borrow()
+            .iter()
+            .find(|((stored_tenant, _), (user, _))| {
+                *stored_tenant == tenant_id && user.email() == email
+            })
+            .map(|(_, (user, hash))| UserCredentials::new(user.clone(), hash.clone())))
     }
 
     fn create(
         &self,
         tenant_id: TenantId,
         new_user: NewUser,
-        _password_hash: PasswordHash,
+        password_hash: PasswordHash,
     ) -> crate::NythosResult<User> {
         let user = User::new(
             UserId::generate(),
@@ -63,7 +85,7 @@ impl UserRepository for InMemoryUserRepository {
 
         self.users
             .borrow_mut()
-            .insert((tenant_id, user.id()), user.clone());
+            .insert((tenant_id, user.id()), (user.clone(), password_hash));
 
         Ok(user)
     }
@@ -75,7 +97,7 @@ impl UserRepository for InMemoryUserRepository {
         status: UserStatus,
     ) -> crate::NythosResult<()> {
         let mut users = self.users.borrow_mut();
-        let user = users
+        let (user, _) = users
             .get_mut(&(tenant_id, user_id))
             .ok_or(AuthError::UserNotFound)?;
         user.set_status(status);

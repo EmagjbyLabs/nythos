@@ -12,8 +12,8 @@ pub mod rbac;
 pub mod session;
 
 pub use auth::{
-    AccessToken, Claims, PasswordHash, RegisterAuthMaterial, RegisterInput, RegisterResult,
-    RegisterService, TokenPurpose,
+    AccessToken, Claims, LoginAuthMaterial, LoginInput, LoginService, PasswordHash,
+    RegisterAuthMaterial, RegisterInput, RegisterResult, RegisterService, TokenPurpose,
 };
 pub use domain::{
     Email, Password, RoleId, SessionId, Tenant, TenantId, TenantSettings, User, UserId, UserStatus,
@@ -21,7 +21,7 @@ pub use domain::{
 pub use error::{AuthError, NythosResult};
 pub use ports::{
     NewUser, PasswordHasher, RefreshTokenRotation, RevocationChecker, RoleAssignmentInput,
-    RoleRepository, SessionRecord, SessionStore, TokenSigner, UserRepository,
+    RoleRepository, SessionRecord, SessionStore, TokenSigner, UserCredentials, UserRepository,
 };
 pub use rbac::{Permission, Role, RoleAssignment, RoleRegistry};
 pub use session::{RefreshToken, Session};
