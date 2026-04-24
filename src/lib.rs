@@ -11,7 +11,10 @@ pub mod ports;
 pub mod rbac;
 pub mod session;
 
-pub use auth::{AccessToken, Claims, PasswordHash, TokenPurpose};
+pub use auth::{
+    AccessToken, Claims, PasswordHash, RegisterAuthMaterial, RegisterInput, RegisterResult,
+    RegisterService, TokenPurpose,
+};
 pub use domain::{
     Email, Password, RoleId, SessionId, Tenant, TenantId, TenantSettings, User, UserId, UserStatus,
 };
