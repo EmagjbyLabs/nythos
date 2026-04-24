@@ -3,8 +3,8 @@
 //! Implementations of these ports live outside the core crate.
 
 use crate::{
-    Email, NythosResult, PasswordHash, Role, RoleAssignment, RoleId, TenantId, User, UserId,
-    UserStatus,
+    Email, NythosResult, PasswordHash, RefreshToken, Role, RoleAssignment, RoleId, Session,
+    SessionId, TenantId, User, UserId, UserStatus,
 };
 
 /// Domain-facing input used when creating a new user inside a tenant.
@@ -67,6 +67,70 @@ impl RoleAssignmentInput {
     }
 }
 
+/// Session creation payload used by auth services when persisting a fresh session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionRecord {
+    session: Session,
+    refresh_token: RefreshToken,
+}
+
+impl SessionRecord {
+    pub fn new(session: Session, refresh_token: RefreshToken) -> Self {
+        Self {
+            session,
+            refresh_token,
+        }
+    }
+
+    pub fn session(&self) -> &Session {
+        &self.session
+    }
+
+    pub fn refresh_token(&self) -> &RefreshToken {
+        &self.refresh_token
+    }
+
+    pub fn into_parts(self) -> (Session, RefreshToken) {
+        (self.session, self.refresh_token)
+    }
+}
+
+/// Refresh-token rotation command.
+///
+/// Makes one-time rotation semantics explicit at the contract boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefreshTokenRotation {
+    session_id: SessionId,
+    previous: RefreshToken,
+    next: RefreshToken,
+}
+
+impl RefreshTokenRotation {
+    pub fn new(session_id: SessionId, previous: RefreshToken, next: RefreshToken) -> Self {
+        Self {
+            session_id,
+            previous,
+            next,
+        }
+    }
+
+    pub const fn session_id(&self) -> SessionId {
+        self.session_id
+    }
+
+    pub fn previous(&self) -> &RefreshToken {
+        &self.previous
+    }
+
+    pub fn next(&self) -> &RefreshToken {
+        &self.next
+    }
+
+    pub fn into_parts(self) -> (SessionId, RefreshToken, RefreshToken) {
+        (self.session_id, self.previous, self.next)
+    }
+}
+
 /// Tenant-scoped user repository contract used by registration and login flows.
 ///
 /// All lookup and mutation methods that depend on tenant context require an
@@ -121,13 +185,45 @@ pub trait RoleRepository {
     fn get_roles_for_user(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Vec<Role>>;
 }
 
+/// Session store contract used by register, login, refresh, logout, and revoke flows.
+///
+/// Rotation semantics are explicit at the API boundary:
+/// - sessions are created together with one opaque refresh token
+/// - refresh-token lookup returns the owning session context
+/// - successful rotation invalidates the previous refresh token in favor of the next one
+/// - revoke-all is always tenant-scoped
+pub trait SessionStore {
+    /// Persists a newly issued session together with its initial refresh token.
+    fn create_session(&self, record: SessionRecord) -> NythosResult<()>;
+
+    /// Finds the session currently associated with an opaque refresh token.
+    fn find_by_refresh_token(
+        &self,
+        refresh_token: &RefreshToken,
+    ) -> NythosResult<Option<SessionRecord>>;
+
+    /// Rotates a refresh token for a specific session.
+    ///
+    /// Implementations should treat the `previous` token as invalid after a
+    /// successful rotation.
+    fn rotate_refresh_token(&self, rotation: RefreshTokenRotation) -> NythosResult<()>;
+
+    /// Revokes a single session by ID.
+    fn revoke_session(&self, session_id: SessionId) -> NythosResult<()>;
+
+    /// Revokes all sessions owned by a user within a specific tenant.
+    fn revoke_all_for_user(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<()>;
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{NewUser, UserRepository};
+    use super::{
+        NewUser, RefreshTokenRotation, RoleAssignmentInput, RoleRepository, SessionRecord,
+        SessionStore, UserRepository,
+    };
     use crate::{
-        AuthError, Email, PasswordHash, Permission, Role, RoleAssignment, RoleId, TenantId, User,
-        UserId, UserStatus,
-        ports::{RoleAssignmentInput, RoleRepository},
+        AuthError, Email, PasswordHash, Permission, RefreshToken, Role, RoleAssignment, RoleId,
+        Session, SessionId, TenantId, User, UserId, UserStatus,
     };
     use std::{cell::RefCell, collections::BTreeMap, rc::Rc, time::SystemTime};
 
@@ -463,5 +559,218 @@ mod tests {
 
         let roles = repo.get_roles_for_user(tenant_id, user_id).unwrap();
         assert!(roles.is_empty());
+    }
+
+    type TestSessionStoreMap = BTreeMap<SessionId, SessionRecord>;
+    type TestRefreshIndex = BTreeMap<String, SessionId>;
+
+    #[derive(Clone)]
+    struct InMemorySessionStore {
+        records: Rc<RefCell<TestSessionStoreMap>>,
+        refresh_index: Rc<RefCell<TestRefreshIndex>>,
+    }
+
+    impl InMemorySessionStore {
+        fn new() -> Self {
+            Self {
+                records: Rc::new(RefCell::new(BTreeMap::new())),
+                refresh_index: Rc::new(RefCell::new(BTreeMap::new())),
+            }
+        }
+    }
+
+    impl SessionStore for InMemorySessionStore {
+        fn create_session(&self, record: SessionRecord) -> crate::NythosResult<()> {
+            let session_id = record.session().id();
+            let refresh_key = record.refresh_token().as_str().to_owned();
+
+            self.refresh_index
+                .borrow_mut()
+                .insert(refresh_key, session_id);
+            self.records.borrow_mut().insert(session_id, record);
+            Ok(())
+        }
+
+        fn find_by_refresh_token(
+            &self,
+            refresh_token: &RefreshToken,
+        ) -> crate::NythosResult<Option<SessionRecord>> {
+            let index = self.refresh_index.borrow();
+            let records = self.records.borrow();
+
+            Ok(index
+                .get(refresh_token.as_str())
+                .and_then(|session_id| records.get(session_id))
+                .cloned())
+        }
+
+        fn rotate_refresh_token(&self, rotation: RefreshTokenRotation) -> crate::NythosResult<()> {
+            let (session_id, previous, next) = rotation.into_parts();
+
+            let mut index = self.refresh_index.borrow_mut();
+            let mut records = self.records.borrow_mut();
+
+            let record = records
+                .get_mut(&session_id)
+                .ok_or(AuthError::SessionRevoked)?;
+
+            let indexed_session = index
+                .get(previous.as_str())
+                .copied()
+                .ok_or(AuthError::InvalidCredentials)?;
+
+            if indexed_session != session_id {
+                return Err(AuthError::InvalidCredentials);
+            }
+
+            index.remove(previous.as_str());
+            index.insert(next.as_str().to_owned(), session_id);
+            *record = SessionRecord::new(record.session().clone(), next);
+
+            Ok(())
+        }
+
+        fn revoke_session(&self, session_id: SessionId) -> crate::NythosResult<()> {
+            let mut records = self.records.borrow_mut();
+            let record = records
+                .get_mut(&session_id)
+                .ok_or(AuthError::SessionRevoked)?;
+
+            let refresh_key = record.refresh_token().as_str().to_owned();
+            record.session.revoke();
+            self.refresh_index.borrow_mut().remove(&refresh_key);
+
+            Ok(())
+        }
+
+        fn revoke_all_for_user(
+            &self,
+            tenant_id: TenantId,
+            user_id: UserId,
+        ) -> crate::NythosResult<()> {
+            let mut records = self.records.borrow_mut();
+            let mut index = self.refresh_index.borrow_mut();
+
+            for record in records.values_mut() {
+                if record.session().tenant_id() == tenant_id
+                    && record.session().user_id() == user_id
+                {
+                    let refresh_key = record.refresh_token().as_str().to_owned();
+                    record.session.revoke();
+                    index.remove(&refresh_key);
+                }
+            }
+
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn session_record_keeps_session_and_refresh_token_together() {
+        let session = Session::with_ttl(
+            SessionId::generate(),
+            UserId::generate(),
+            TenantId::generate(),
+            SystemTime::UNIX_EPOCH,
+            std::time::Duration::from_secs(60),
+        )
+        .unwrap();
+        let refresh = RefreshToken::new("opaque-refresh-token").unwrap();
+
+        let record = SessionRecord::new(session.clone(), refresh.clone());
+
+        assert_eq!(record.session(), &session);
+        assert_eq!(record.refresh_token(), &refresh);
+    }
+
+    #[test]
+    fn refresh_token_rotation_input_makes_one_time_rotation_explicit() {
+        let rotation = RefreshTokenRotation::new(
+            SessionId::generate(),
+            RefreshToken::new("old-refresh").unwrap(),
+            RefreshToken::new("new-refresh").unwrap(),
+        );
+
+        assert_eq!(rotation.previous().as_str(), "old-refresh");
+        assert_eq!(rotation.next().as_str(), "new-refresh");
+    }
+
+    #[test]
+    fn session_store_supports_one_time_refresh_token_rotation() {
+        let store = InMemorySessionStore::new();
+        let session = Session::with_ttl(
+            SessionId::generate(),
+            UserId::generate(),
+            TenantId::generate(),
+            SystemTime::UNIX_EPOCH,
+            std::time::Duration::from_secs(600),
+        )
+        .unwrap();
+
+        let initial = RefreshToken::new("initial-refresh").unwrap();
+        let next = RefreshToken::new("next-refresh").unwrap();
+
+        store
+            .create_session(SessionRecord::new(session.clone(), initial.clone()))
+            .unwrap();
+
+        store
+            .rotate_refresh_token(RefreshTokenRotation::new(
+                session.id(),
+                initial.clone(),
+                next.clone(),
+            ))
+            .unwrap();
+
+        assert!(store.find_by_refresh_token(&initial).unwrap().is_none());
+        assert_eq!(
+            store
+                .find_by_refresh_token(&next)
+                .unwrap()
+                .unwrap()
+                .session()
+                .id(),
+            session.id()
+        );
+    }
+
+    #[test]
+    fn revoke_all_is_explicitly_tenant_scoped() {
+        let store = InMemorySessionStore::new();
+        let tenant_a = TenantId::generate();
+        let tenant_b = TenantId::generate();
+        let user_id = UserId::generate();
+
+        let session_a = Session::with_ttl(
+            SessionId::generate(),
+            user_id,
+            tenant_a,
+            SystemTime::UNIX_EPOCH,
+            std::time::Duration::from_secs(600),
+        )
+        .unwrap();
+        let session_b = Session::with_ttl(
+            SessionId::generate(),
+            user_id,
+            tenant_b,
+            SystemTime::UNIX_EPOCH,
+            std::time::Duration::from_secs(600),
+        )
+        .unwrap();
+
+        let refresh_a = RefreshToken::new("tenant-a-refresh").unwrap();
+        let refresh_b = RefreshToken::new("tenant-b-refresh").unwrap();
+
+        store
+            .create_session(SessionRecord::new(session_a.clone(), refresh_a.clone()))
+            .unwrap();
+        store
+            .create_session(SessionRecord::new(session_b.clone(), refresh_b.clone()))
+            .unwrap();
+
+        store.revoke_all_for_user(tenant_a, user_id).unwrap();
+
+        assert!(store.find_by_refresh_token(&refresh_a).unwrap().is_none());
+        assert!(store.find_by_refresh_token(&refresh_b).unwrap().is_some());
     }
 }
