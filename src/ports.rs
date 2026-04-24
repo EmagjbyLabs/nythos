@@ -30,6 +30,37 @@ impl NewUser {
     }
 }
 
+/// User credentials payload returned by the user repository for login orchestration.
+///
+/// This keeps password-hash details out of the core service while still allowing
+/// password verification to happen in the core layer, where it belongs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserCredentials {
+    user: User,
+    password_hash: PasswordHash,
+}
+
+impl UserCredentials {
+    pub fn new(user: User, password_hash: PasswordHash) -> Self {
+        Self {
+            user,
+            password_hash,
+        }
+    }
+
+    pub fn user(&self) -> &User {
+        &self.user
+    }
+
+    pub fn password_hash(&self) -> &PasswordHash {
+        &self.password_hash
+    }
+
+    pub fn into_parts(self) -> (User, PasswordHash) {
+        (self.user, self.password_hash)
+    }
+}
+
 /// Tenant-scoped role assignment command.
 ///
 /// This keeps assignment/revocation inputs explicit and avoids ambiguous
@@ -145,6 +176,16 @@ pub trait UserRepository {
 
     /// Finds a user by ID within a specific tenant.
     fn find_by_id(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Option<User>>;
+
+    /// Finds a user and stored password hash by normalizied email within a specific tenant.
+    ///
+    /// This is used by login orchestration so password verification can stay in
+    /// the core service while persistence details remain outside the core.
+    fn find_credentials_by_email(
+        &self,
+        tenant_id: TenantId,
+        email: &Email,
+    ) -> NythosResult<Option<UserCredentials>>;
 
     /// Creates a new user in the given tenant using an already-validated email
     /// and an already-produced password hash.
@@ -296,6 +337,21 @@ mod tests {
                     *stored_tenant == tenant_id && user.email() == email
                 })
                 .map(|(_, (user, _))| user.clone()))
+        }
+
+        fn find_credentials_by_email(
+            &self,
+            tenant_id: TenantId,
+            email: &Email,
+        ) -> crate::NythosResult<Option<super::UserCredentials>> {
+            Ok(self
+                .users
+                .borrow()
+                .iter()
+                .find(|((stored_tenant, _), (user, _))| {
+                    *stored_tenant == tenant_id && user.email() == email
+                })
+                .map(|(_, (user, hash))| super::UserCredentials::new(user.clone(), hash.clone())))
         }
 
         fn find_by_id(

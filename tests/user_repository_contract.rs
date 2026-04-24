@@ -1,5 +1,6 @@
 use nythos_core::{
     Email, NewUser, PasswordHash, TenantId, User, UserId, UserRepository, UserStatus,
+    ports::UserCredentials,
 };
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc, time::SystemTime};
 
@@ -44,6 +45,21 @@ impl UserRepository for TestUserRepository {
             .borrow()
             .get(&(tenant_id, user_id))
             .map(|(user, _)| user.clone()))
+    }
+
+    fn find_credentials_by_email(
+        &self,
+        tenant_id: TenantId,
+        email: &Email,
+    ) -> nythos_core::NythosResult<Option<nythos_core::ports::UserCredentials>> {
+        Ok(self
+            .users
+            .borrow()
+            .iter()
+            .find(|((stored_tenant, _), (user, _))| {
+                *stored_tenant == tenant_id && user.email() == email
+            })
+            .map(|(_, (user, hash))| UserCredentials::new(user.clone(), hash.clone())))
     }
 
     fn create(
