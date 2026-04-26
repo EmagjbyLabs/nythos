@@ -14,7 +14,8 @@ pub mod session;
 pub use auth::{
     AccessToken, Claims, LoginAuthMaterial, LoginInput, LoginService, PasswordHash,
     RefreshAuthMaterial, RefreshInput, RefreshService, RegisterAuthMaterial, RegisterInput,
-    RegisterResult, RegisterService, TokenPurpose,
+    RegisterResult, RegisterService, RevokeAllSessionsInput, RevokeAllSessionsService,
+    RevokeResult, RevokeSessionInput, RevokeSessionService, TokenPurpose,
 };
 pub use domain::{
     Email, Password, RoleId, SessionId, Tenant, TenantId, TenantSettings, User, UserId, UserStatus,
