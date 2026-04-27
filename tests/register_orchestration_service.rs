@@ -1,196 +1,9 @@
-use nythos_core::{
-    AccessToken, AuthError, Claims, Email, NewUser, NythosResult, Password, PasswordHash,
-    PasswordHasher, RefreshToken, RefreshTokenRotation, RegisterInput, RegisterService, SessionId,
-    SessionRecord, SessionStore, TenantId, TokenSigner, User, UserId, UserRepository, UserStatus,
-    ports::UserCredentials,
+mod support;
+
+use nythos_core::{AuthError, RegisterInput, RegisterService, SessionStore, TenantId};
+use support::{
+    FakePasswordHasher, FakeTokenSigner, InMemorySessionStore, InMemoryUserRepository, fixtures,
 };
-
-use std::{
-    cell::RefCell,
-    collections::BTreeMap,
-    rc::Rc,
-    time::{Duration, SystemTime},
-};
-
-type TestUserStore = BTreeMap<(TenantId, UserId), (User, PasswordHash)>;
-type TestSessionStoreMap = BTreeMap<String, SessionRecord>;
-
-#[derive(Clone)]
-struct InMemoryUserRepository {
-    users: Rc<RefCell<TestUserStore>>,
-}
-
-impl InMemoryUserRepository {
-    fn new() -> Self {
-        Self {
-            users: Rc::new(RefCell::new(BTreeMap::new())),
-        }
-    }
-}
-
-impl UserRepository for InMemoryUserRepository {
-    fn find_by_email(
-        &self,
-        tenant_id: TenantId,
-        email: &Email,
-    ) -> crate::NythosResult<Option<User>> {
-        Ok(self
-            .users
-            .borrow()
-            .iter()
-            .find(|((stored_tenant, _), (user, _))| {
-                *stored_tenant == tenant_id && user.email() == email
-            })
-            .map(|(_, (user, _))| user.clone()))
-    }
-
-    fn find_by_id(
-        &self,
-        tenant_id: TenantId,
-        user_id: UserId,
-    ) -> crate::NythosResult<Option<User>> {
-        Ok(self
-            .users
-            .borrow()
-            .get(&(tenant_id, user_id))
-            .map(|(user, _)| user.clone()))
-    }
-
-    fn find_credentials_by_email(
-        &self,
-        tenant_id: TenantId,
-        email: &Email,
-    ) -> nythos_core::NythosResult<Option<UserCredentials>> {
-        Ok(self
-            .users
-            .borrow()
-            .iter()
-            .find(|((stored_tenant, _), (user, _))| {
-                *stored_tenant == tenant_id && user.email() == email
-            })
-            .map(|(_, (user, hash))| UserCredentials::new(user.clone(), hash.clone())))
-    }
-
-    fn create(
-        &self,
-        tenant_id: TenantId,
-        new_user: NewUser,
-        password_hash: PasswordHash,
-    ) -> crate::NythosResult<User> {
-        let user = User::new(
-            UserId::generate(),
-            new_user.into_email(),
-            SystemTime::UNIX_EPOCH,
-        );
-
-        self.users
-            .borrow_mut()
-            .insert((tenant_id, user.id()), (user.clone(), password_hash));
-
-        Ok(user)
-    }
-
-    fn update_status(
-        &self,
-        tenant_id: TenantId,
-        user_id: UserId,
-        status: UserStatus,
-    ) -> crate::NythosResult<()> {
-        let mut users = self.users.borrow_mut();
-        let (user, _) = users
-            .get_mut(&(tenant_id, user_id))
-            .ok_or(AuthError::UserNotFound)?;
-        user.set_status(status);
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct FakePasswordHasher;
-
-impl PasswordHasher for FakePasswordHasher {
-    fn hash(&self, password: &Password) -> crate::NythosResult<PasswordHash> {
-        PasswordHash::new(format!("argon2id${}", password.as_str()))
-    }
-
-    fn verify(&self, password: &Password, hash: &PasswordHash) -> crate::NythosResult<bool> {
-        Ok(hash.as_str() == format!("argon2id${}", password.as_str()))
-    }
-}
-
-#[derive(Default)]
-struct FakeTokenSigner;
-
-impl TokenSigner for FakeTokenSigner {
-    fn sign(&self, claims: &Claims) -> crate::NythosResult<AccessToken> {
-        AccessToken::new(format!(
-            "signed:{}:{}",
-            claims.subject(),
-            claims.tenant_id()
-        ))
-    }
-
-    fn verify(&self, token: &AccessToken) -> crate::NythosResult<Claims> {
-        if token.as_str().is_empty() {
-            return Err(AuthError::InvalidCredentials);
-        }
-
-        Claims::access(
-            UserId::generate(),
-            TenantId::generate(),
-            SystemTime::UNIX_EPOCH,
-            Duration::from_secs(300),
-        )
-    }
-}
-
-#[derive(Clone)]
-struct InMemorySessionStore {
-    records: Rc<RefCell<TestSessionStoreMap>>,
-}
-
-impl InMemorySessionStore {
-    fn new() -> Self {
-        Self {
-            records: Rc::new(RefCell::new(BTreeMap::new())),
-        }
-    }
-}
-
-impl SessionStore for InMemorySessionStore {
-    fn create_session(&self, record: SessionRecord) -> crate::NythosResult<()> {
-        self.records
-            .borrow_mut()
-            .insert(record.refresh_token().as_str().to_owned(), record);
-        Ok(())
-    }
-
-    fn find_by_refresh_token(
-        &self,
-        refresh_token: &RefreshToken,
-    ) -> crate::NythosResult<Option<SessionRecord>> {
-        Ok(self.records.borrow().get(refresh_token.as_str()).cloned())
-    }
-
-    fn rotate_refresh_token(
-        &self,
-        _rotation: crate::RefreshTokenRotation,
-    ) -> crate::NythosResult<()> {
-        Ok(())
-    }
-
-    fn revoke_session(&self, _session_id: SessionId) -> crate::NythosResult<()> {
-        Ok(())
-    }
-
-    fn revoke_all_for_user(
-        &self,
-        _tenant_id: TenantId,
-        _user_id: UserId,
-    ) -> crate::NythosResult<()> {
-        Ok(())
-    }
-}
 
 #[test]
 fn register_validates_email_and_password_through_core_value_objects() {
@@ -204,9 +17,9 @@ fn register_validates_email_and_password_through_core_value_objects() {
         TenantId::generate(),
         "not-an-email".to_owned(),
         "short".to_owned(),
-        SystemTime::UNIX_EPOCH,
-        Duration::from_secs(300),
-        Duration::from_secs(600),
+        fixtures::canonical_issued_at(),
+        fixtures::canonical_access_token_ttl(),
+        fixtures::canonical_session_ttl(),
     ));
 
     assert!(matches!(result, Err(AuthError::ValidationError(_))));
@@ -224,21 +37,21 @@ fn register_enforces_tenant_scoped_duplicate_email_checks() {
     service
         .register(RegisterInput::new(
             tenant_id,
-            "person@example.com".to_owned(),
-            "super-secret-password".to_owned(),
-            SystemTime::UNIX_EPOCH,
-            Duration::from_secs(300),
-            Duration::from_secs(600),
+            fixtures::canonical_email_string(),
+            fixtures::canonical_password_string(),
+            fixtures::canonical_issued_at(),
+            fixtures::canonical_access_token_ttl(),
+            fixtures::canonical_session_ttl(),
         ))
         .unwrap();
 
     let duplicate = service.register(RegisterInput::new(
         tenant_id,
-        "person@example.com".to_owned(),
+        fixtures::canonical_email_string(),
         "another-secret-password".to_owned(),
-        SystemTime::UNIX_EPOCH,
-        Duration::from_secs(300),
-        Duration::from_secs(600),
+        fixtures::canonical_issued_at(),
+        fixtures::canonical_access_token_ttl(),
+        fixtures::canonical_session_ttl(),
     ));
 
     assert!(matches!(duplicate, Err(AuthError::ValidationError(_))));
@@ -256,11 +69,11 @@ fn register_returns_signed_auth_material_when_auto_sign_in_is_enabled() {
     let result = service
         .register(RegisterInput::new(
             tenant_id,
-            "person@example.com".to_owned(),
-            "super-secret-password".to_owned(),
-            SystemTime::UNIX_EPOCH,
-            Duration::from_secs(300),
-            Duration::from_secs(600),
+            fixtures::canonical_email_string(),
+            fixtures::canonical_password_string(),
+            fixtures::canonical_issued_at(),
+            fixtures::canonical_access_token_ttl(),
+            fixtures::canonical_session_ttl(),
         ))
         .unwrap();
 
@@ -290,11 +103,11 @@ fn register_can_return_user_without_auth_material() {
         .register(
             RegisterInput::new(
                 TenantId::generate(),
-                "person@example.com".to_owned(),
-                "super-secret-password".to_owned(),
-                SystemTime::UNIX_EPOCH,
-                Duration::from_secs(300),
-                Duration::from_secs(600),
+                fixtures::canonical_email_string(),
+                fixtures::canonical_password_string(),
+                fixtures::canonical_issued_at(),
+                fixtures::canonical_access_token_ttl(),
+                fixtures::canonical_session_ttl(),
             )
             .with_auto_sign_in(false),
         )
