@@ -100,3 +100,18 @@ fn revoke_single_session_surfaces_missing_session_failures() {
 
     assert!(matches!(result, Err(AuthError::SessionRevoked)));
 }
+
+#[test]
+fn revoke_all_returns_success_when_no_sessions_match() {
+    let store = InMemorySessionStore::new();
+    let service = RevokeAllSessionsService::new(&store);
+
+    let result = service
+        .revoke_all(RevokeAllSessionsInput::new(
+            TenantId::generate(),
+            UserId::generate(),
+        ))
+        .unwrap();
+
+    assert!(result.revoked());
+}
