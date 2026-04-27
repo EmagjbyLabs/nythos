@@ -61,7 +61,7 @@ fn refresh_rejects_revoked_sessions_before_issuing_auth_material() {
 }
 
 #[test]
-fn refresh_rejects_expired_sessions() {
+fn refresh_treats_expiry_boundary_equality_as_expired() {
     let sessions = InMemorySessionStore::new();
     let roles = InMemoryRoleRepository::new();
     let signer = FakeTokenSigner;
@@ -150,6 +150,45 @@ fn refresh_rotates_token_and_returns_fresh_auth_material() {
             .unwrap()
             .is_some()
     );
+}
+
+#[test]
+fn refresh_rejects_reuse_of_rotated_refresh_token() {
+    let sessions = InMemorySessionStore::new();
+    let roles = InMemoryRoleRepository::new();
+    let signer = FakeTokenSigner;
+    let checker = FakeRevocationChecker::default();
+    let service = RefreshService::new(&sessions, &roles, &signer, &checker);
+
+    let issued_at = fixtures::canonical_issued_at();
+    let session = fixtures::session(
+        SessionId::generate(),
+        UserId::generate(),
+        TenantId::generate(),
+        issued_at,
+        fixtures::canonical_session_ttl(),
+    );
+    let initial_refresh = fixtures::refresh_token("initial-refresh");
+
+    sessions
+        .create_session(SessionRecord::new(session, initial_refresh.clone()))
+        .unwrap();
+
+    service
+        .refresh(RefreshInput::new(
+            initial_refresh.as_str().to_owned(),
+            issued_at + Duration::from_secs(10),
+            fixtures::canonical_access_token_ttl(),
+        ))
+        .unwrap();
+
+    let result = service.refresh(RefreshInput::new(
+        initial_refresh.as_str().to_owned(),
+        issued_at + Duration::from_secs(20),
+        fixtures::canonical_access_token_ttl(),
+    ));
+
+    assert!(matches!(result, Err(AuthError::InvalidCredentials)));
 }
 
 #[test]

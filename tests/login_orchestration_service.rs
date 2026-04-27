@@ -31,6 +31,27 @@ fn login_validates_inbound_value_objects() {
 }
 
 #[test]
+fn login_returns_invalid_credentials_for_missing_user_with_valid_input_shape() {
+    let users = InMemoryUserRepository::new();
+    let roles = InMemoryRoleRepository::new();
+    let sessions = InMemorySessionStore::new();
+    let hasher = FakePasswordHasher;
+    let signer = FakeTokenSigner;
+    let service = LoginService::new(&users, &roles, &sessions, &hasher, &signer);
+
+    let result = service.login(LoginInput::new(
+        TenantId::generate(),
+        fixtures::canonical_email_string(),
+        fixtures::canonical_password_string(),
+        fixtures::canonical_issued_at(),
+        fixtures::canonical_access_token_ttl(),
+        fixtures::canonical_session_ttl(),
+    ));
+
+    assert!(matches!(result, Err(AuthError::InvalidCredentials)));
+}
+
+#[test]
 fn login_rejects_invalid_credentials() {
     let users = InMemoryUserRepository::new();
     let roles = InMemoryRoleRepository::new();
@@ -82,6 +103,42 @@ fn login_rejects_locked_accounts_before_completion() {
 
     users
         .update_status(tenant_id, user.id(), UserStatus::Locked)
+        .unwrap();
+
+    let service = LoginService::new(&users, &roles, &sessions, &hasher, &signer);
+
+    let result = service.login(LoginInput::new(
+        tenant_id,
+        fixtures::canonical_email_string(),
+        fixtures::canonical_password_string(),
+        fixtures::canonical_issued_at(),
+        fixtures::canonical_access_token_ttl(),
+        fixtures::canonical_session_ttl(),
+    ));
+
+    assert!(matches!(result, Err(AuthError::AccountLocked)));
+}
+
+#[test]
+fn login_rejects_disabled_accounts_as_account_locked() {
+    let users = InMemoryUserRepository::new();
+    let roles = InMemoryRoleRepository::new();
+    let sessions = InMemorySessionStore::new();
+    let hasher = FakePasswordHasher;
+    let signer = FakeTokenSigner;
+    let tenant_id = TenantId::generate();
+
+    let password_hash = hasher.hash(&fixtures::canonical_password()).unwrap();
+    let user = users
+        .create(
+            tenant_id,
+            NewUser::new(fixtures::canonical_email()),
+            password_hash,
+        )
+        .unwrap();
+
+    users
+        .update_status(tenant_id, user.id(), UserStatus::Disabled)
         .unwrap();
 
     let service = LoginService::new(&users, &roles, &sessions, &hasher, &signer);
