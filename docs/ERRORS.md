@@ -144,6 +144,9 @@ these cases differently.
 The current implementation uses the variants above with the following concrete
 auth-flow semantics.
 
+These notes document the current implementation, not a permanent product-policy
+commitment.
+
 ## Login
 
 - missing-user login returns `AuthError::InvalidCredentials`
@@ -155,12 +158,17 @@ auth-flow semantics.
 
 - unknown refresh token returns `AuthError::InvalidCredentials`
 - reuse of a rotated refresh token returns `AuthError::InvalidCredentials`
-- externally revoked refresh session returns `AuthError::SessionRevoked`
+- a returned session record already marked revoked returns `AuthError::SessionRevoked`
+- external revocation through `RevocationChecker` returns `AuthError::SessionRevoked`
 - expired session refresh returns `AuthError::SessionExpired`
+- refresh at exactly the expiry boundary returns `AuthError::SessionExpired` because expiry checks use `expires_at <= now`
 
 ## Revocation
 
+- revoke-one checks `RevocationChecker` before calling `SessionStore::revoke_session`
+- if `RevocationChecker` already reports the session as revoked, revoke-one returns success with `RevokeResult::revoked() == false`
 - revoke-one for a missing session currently surfaces `AuthError::SessionRevoked`
+- revoke-all returns success with `RevokeResult::revoked() == true` when the store call succeeds
 - revoke-all currently returns success from the service even when no sessions match, as long as the store call itself succeeds
 
 ## HTTP Mapping Stays Outside The Core

@@ -170,6 +170,7 @@ refresh token.
 - session marked revoked in the returned record -> `SessionRevoked`
 - externally revoked session -> `SessionRevoked`
 - session expired -> `SessionExpired`
+- refresh at the exact expiry boundary -> `SessionExpired` because session expiry uses `expires_at <= now`
 - role load, signing, or rotation failure -> propagated core error from the dependency
 
 ### Security Notes
@@ -218,6 +219,8 @@ session is already known as revoked.
 
 - revocation must affect future requests even if an access token has not yet expired, once outer layers enforce revocation checks
 - the core defines the revocation rule; outer layers enforce it at request boundaries
+- request-time revocation checks need session identity
+- `Claims` do not currently carry `SessionId`, so verified claims alone are not enough to call `RevocationChecker`; outer layers currently need another way to recover or track session identity
 
 ## Revoke All Sessions
 
@@ -254,3 +257,4 @@ one tenant.
 
 - revoke-all is tenant-scoped
 - future authenticated requests must fail once outer layers enforce revocation checks
+- that request-time revocation enforcement still needs session identity outside verified `Claims`, because `Claims` do not currently carry `SessionId`
