@@ -148,6 +148,9 @@ Current notes:
 - claims do not currently embed roles or permissions
 - login and refresh load tenant-scoped roles before signing a new access token
 - claims must not weaken the tenant boundary
+- claims do not currently carry `SessionId`
+- this is a known design gap relative to `RevocationChecker`, which requires a `SessionId`
+- request-time revocation checks therefore cannot be performed from verified `Claims` alone; outer layers currently need another way to recover or track session identity
 
 ## `TokenPurpose`
 

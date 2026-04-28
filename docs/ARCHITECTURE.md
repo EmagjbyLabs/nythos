@@ -168,6 +168,18 @@ Examples:
 Ports are not extension points for arbitrary plugin systems. They exist because
 the core must remain deployment-agnostic.
 
+## Current Design Gap
+
+Verified `Claims` and `RevocationChecker` do not line up completely today.
+
+- `Claims` currently carry subject, tenant, purpose, and issue/expiry timestamps
+- `Claims` do not currently carry `SessionId`
+- `RevocationChecker` requires `SessionId`
+- request-time revocation after token verification therefore cannot be driven by verified `Claims` alone
+
+This is a documented current design gap, not a behavior change request in this
+issue.
+
 ## Why One Crate
 
 `nythos-core` is kept as a single library crate with internal modules because:
