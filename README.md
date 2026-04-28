@@ -3,6 +3,15 @@
 `nythos-core` is the public Rust OSS core library for Nythos.
 Nythos is the authentication and authorization system in the Emagjby ecosystem.
 
+## Package
+
+- crate: `nythos-core`
+- version: `0.1.0`
+- license: `MIT`
+- docs: `https://docs.rs/nythos-core`
+- repository: `https://github.com/EmagjbyLabs/nythos`
+- boundary: core-only, infrastructure-free, with no HTTP or storage adapters in this crate
+
 ## Scope
 
 `nythos-core` owns:

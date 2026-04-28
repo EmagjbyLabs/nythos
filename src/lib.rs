@@ -4,6 +4,8 @@
 //! `nythos-core` contains implemented domain models, orchestration services,
 //! and trait contracts only.
 //! It intentionally excludes HTTP, storage drivers, and other infrastructure.
+//! The crate root re-exports the main public surface, with grouped access also
+//! available under `auth`, `domain`, `ports`, `rbac`, `session`, and `error`.
 
 pub mod auth;
 pub mod domain;

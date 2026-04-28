@@ -2,6 +2,14 @@
 name = "nythos-core"
 version = "0.1.0"
 edition = "2024"
+description = "Infrastructure-free Rust core library for Nythos authentication and authorization."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/EmagjbyLabs/nythos"
+homepage = "https://github.com/EmagjbyLabs/nythos"
+documentation = "https://docs.rs/nythos-core"
+keywords = ["auth", "authorization", "rbac", "sessions"]
+categories = ["authentication", "web-programming"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
