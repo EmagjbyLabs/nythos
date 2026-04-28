@@ -1,11 +1,9 @@
 use std::time::{Duration, SystemTime};
 
-use uuid::Uuid;
-
+use super::issuance::issue_session_auth;
 use crate::{
     AccessToken, AuthError, Claims, Email, NythosResult, Password, PasswordHasher, RefreshToken,
-    Role, RoleRepository, Session, SessionId, SessionRecord, SessionStore, TenantId, TokenSigner,
-    User, UserRepository,
+    Role, RoleRepository, Session, SessionStore, TenantId, TokenSigner, User, UserRepository,
 };
 
 /// Input for the login orchestration flow.
@@ -185,34 +183,23 @@ where
             .role_repository
             .get_roles_for_user(input.tenant_id(), user.id())?;
 
-        let session = Session::with_ttl(
-            SessionId::generate(),
-            user.id(),
-            input.tenant_id(),
-            input.issued_at(),
-            input.session_ttl(),
-        )?;
-
-        let claims = Claims::access(
+        let issued = issue_session_auth(
+            self.session_store,
+            self.token_signer,
             user.id(),
             input.tenant_id(),
             input.issued_at(),
             input.access_token_ttl(),
+            input.session_ttl(),
         )?;
-
-        let access_token = self.token_signer.sign(&claims)?;
-        let refresh_token = RefreshToken::new(Uuid::new_v4().to_string())?;
-
-        self.session_store
-            .create_session(SessionRecord::new(session.clone(), refresh_token.clone()))?;
 
         Ok(LoginAuthMaterial::new(
             user,
             roles,
-            session,
-            refresh_token,
-            access_token,
-            claims,
+            issued.session,
+            issued.refresh_token,
+            issued.access_token,
+            issued.claims,
         ))
     }
 

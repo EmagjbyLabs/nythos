@@ -1,11 +1,9 @@
 use std::time::{Duration, SystemTime};
 
-use uuid::Uuid;
-
+use super::issuance::issue_session_auth;
 use crate::{
     AccessToken, AuthError, Claims, Email, NewUser, NythosResult, Password, PasswordHasher,
-    RefreshToken, Session, SessionId, SessionRecord, SessionStore, TenantId, TokenSigner, User,
-    UserRepository,
+    RefreshToken, Session, SessionStore, TenantId, TokenSigner, User, UserRepository,
 };
 
 /// Input for the register orchestration flow.
@@ -220,33 +218,22 @@ where
         input: &RegisterInput,
         user: &User,
     ) -> NythosResult<RegisterAuthMaterial> {
-        let session = Session::with_ttl(
-            SessionId::generate(),
-            user.id(),
-            input.tenant_id(),
-            input.issued_at(),
-            input.session_ttl(),
-        )?;
-
-        let claims = Claims::access(
+        let issued = issue_session_auth(
+            self.session_store,
+            self.token_signer,
             user.id(),
             input.tenant_id(),
             input.issued_at(),
             input.access_token_ttl(),
+            input.session_ttl(),
         )?;
-
-        let access_token = self.token_signer.sign(&claims)?;
-        let refresh_token = RefreshToken::new(Uuid::new_v4().to_string())?;
-
-        self.session_store
-            .create_session(SessionRecord::new(session.clone(), refresh_token.clone()))?;
 
         Ok(RegisterAuthMaterial::new(
             user.clone(),
-            session,
-            refresh_token,
-            access_token,
-            claims,
+            issued.session,
+            issued.refresh_token,
+            issued.access_token,
+            issued.claims,
         ))
     }
 }
