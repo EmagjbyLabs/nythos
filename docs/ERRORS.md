@@ -4,7 +4,8 @@
 
 ## Purpose
 
-`AuthError` is the common failure type for domain and application-level auth logic inside the core.
+`AuthError` is the common failure type for domain and application-level auth
+logic inside the core.
 
 It exists to:
 
@@ -27,9 +28,10 @@ Return when the requested user does not exist in the relevant tenant scope.
 Typical cases:
 
 - lookup by ID fails
-- login flow cannot find the user
 
-Whether login surfaces `UserNotFound` directly or collapses it into `InvalidCredentials` is a flow-level policy choice.
+Current flow note:
+
+- login does not currently return `UserNotFound`; it collapses missing-user login into `InvalidCredentials`
 
 ## `InvalidCredentials`
 
@@ -37,9 +39,10 @@ Return when credentials do not authenticate successfully.
 
 Typical cases:
 
+- login flow cannot find the user
 - wrong password
-- invalid refresh token presented to a refresh flow
-- login attempt should avoid revealing whether the user exists
+- unknown refresh token presented to refresh
+- reuse of a rotated refresh token during refresh
 
 ## `AccountLocked`
 
@@ -49,6 +52,7 @@ Typical cases:
 
 - lockout policy triggered after repeated failures
 - account was locked by an admin or domain rule
+- disabled account currently maps here in the login flow as well
 
 ## `SessionRevoked`
 
@@ -56,9 +60,9 @@ Return when a session or refresh credential is no longer valid because it was re
 
 Typical cases:
 
-- logout already revoked the session
-- revoke-all invalidated the session
-- previous refresh token is used after rotation
+- refresh sees a returned session marked revoked
+- refresh sees external revocation through `RevocationChecker`
+- revoke-one currently surfaces this error when the target session does not exist in the store contract
 
 ## `SessionExpired`
 
@@ -76,7 +80,7 @@ Return when a required tenant context does not exist.
 Typical cases:
 
 - tenant-scoped operation references an unknown tenant
-- registration or login is requested for a missing tenant
+- a repository or service maps missing tenant state into a core error
 
 ## `PermissionDenied`
 
@@ -85,7 +89,7 @@ Return when an authenticated actor lacks the required permission in the current 
 Typical cases:
 
 - role and permission evaluation fails authorization
-- user attempts tenant action without required assignment
+- user attempts tenant action without the required assignment
 
 ## `ValidationError(String)`
 
@@ -109,7 +113,8 @@ Typical cases:
 - signer failure
 - repository or store failure that does not map to a known domain condition
 
-Use this sparingly. Prefer a specific domain variant when the failure is expected and meaningful to callers.
+Use this sparingly. Prefer a specific domain variant when the failure is expected
+and meaningful to callers.
 
 ## Expected Failures vs Internal Failures
 
@@ -122,15 +127,41 @@ Examples:
 - missing tenant
 - permission denied
 
-Internal failures indicate that a required dependency or operation failed in a way the core does not model directly.
+Internal failures indicate that a required dependency or operation failed in a
+way the core does not model directly.
 
 Examples:
 
-- token signing backend failed
+- token-signing backend failed
 - password hasher returned an unexpected error
 - persistence layer failed unexpectedly
 
-This distinction matters because outer layers may log, retry, alert, or map these cases differently.
+This distinction matters because outer layers may log, retry, alert, or map
+these cases differently.
+
+## Current Flow Semantics
+
+The current implementation uses the variants above with the following concrete
+auth-flow semantics.
+
+## Login
+
+- missing-user login returns `AuthError::InvalidCredentials`
+- wrong-password login returns `AuthError::InvalidCredentials`
+- locked user login returns `AuthError::AccountLocked`
+- disabled user login currently returns `AuthError::AccountLocked`
+
+## Refresh
+
+- unknown refresh token returns `AuthError::InvalidCredentials`
+- reuse of a rotated refresh token returns `AuthError::InvalidCredentials`
+- externally revoked refresh session returns `AuthError::SessionRevoked`
+- expired session refresh returns `AuthError::SessionExpired`
+
+## Revocation
+
+- revoke-one for a missing session currently surfaces `AuthError::SessionRevoked`
+- revoke-all currently returns success from the service even when no sessions match, as long as the store call itself succeeds
 
 ## HTTP Mapping Stays Outside The Core
 

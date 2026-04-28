@@ -48,13 +48,17 @@ Dependency direction is inward toward the domain. Ports define contracts at the 
 
 ## Current State
 
-This repo is documentation-first so implementation can start with stable boundaries.
+`nythos-core` already includes implemented core domain types, auth/session/RBAC models,
+boundary ports, and orchestration services.
+
+The reference docs under `docs/` describe the architecture and contracts that the
+current implementation follows.
 
 See:
 
-- `docs/ARCHITECTURE.md`
-- `docs/DOMAIN_MODEL.md`
-- `docs/PORTS.md`
-- `docs/FLOWS.md`
-- `docs/ERRORS.md`
-- `docs/docs/adr/`
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/DOMAIN_MODEL.md`](docs/DOMAIN_MODEL.md)
+- [`docs/PORTS.md`](docs/PORTS.md)
+- [`docs/FLOWS.md`](docs/FLOWS.md)
+- [`docs/ERRORS.md`](docs/ERRORS.md)
+- [`docs/adr/`](docs/adr/)

@@ -3,7 +3,8 @@ use crate::{NythosResult, Role, RoleAssignment, RoleId, TenantId, UserId};
 /// Tenant-scoped role assignment command.
 ///
 /// This keeps assignment/revocation inputs explicit and avoids ambiguous
-/// multi-argument method signatures in orchestration code.
+/// multi-argument method signatures in orchestration code. It is a domain-facing
+/// boundary payload, not a storage row or transport DTO.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoleAssignmentInput {
     tenant_id: TenantId,

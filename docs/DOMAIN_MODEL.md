@@ -1,10 +1,10 @@
 # Domain Model
 
-This document defines the main nouns in `nythos-core` and the invariants they must preserve.
+This document defines the main nouns in `nythos-core` and the invariants they preserve.
 
 ## Typed IDs
 
-Use typed newtype wrappers over `Uuid` for all primary identity references:
+`nythos-core` uses typed newtype wrappers over `Uuid` for all primary identity references:
 
 - `UserId`
 - `TenantId`
@@ -17,14 +17,11 @@ Purpose:
 - make function signatures explicit
 - keep serialization and persistence decisions outside the type identity itself
 
-Example shape:
+Current behavior:
 
-```rust
-pub struct UserId(Uuid);
-pub struct TenantId(Uuid);
-```
-
-These types should be small, copyable or cheaply cloneable, and validation-free beyond underlying UUID construction.
+- each ID wraps a `Uuid`
+- each ID exposes `new`, `generate`, `as_uuid`, and `into_uuid`
+- each ID supports parsing, display, equality, ordering, and serde
 
 ## Value Objects
 
@@ -35,14 +32,21 @@ Validated email value object.
 Rules:
 
 - created through validation, not raw public string assignment
-- normalized consistently if the implementation chooses normalization
+- normalized consistently for lookup and comparison
 - stored and compared in a way that supports reliable lookup
 
-The core only needs a practical validation boundary, not full email-provider-specific semantics.
+Current normalization behavior:
+
+- trims surrounding whitespace
+- lowercases the full address
+- requires a single `@`
+- rejects empty local or domain parts
+- rejects whitespace inside the address
+- requires the domain portion to look structurally valid
 
 ## `Password`
 
-Represents unverified raw password input.
+Represents validated raw password input.
 
 Rules:
 
@@ -50,48 +54,55 @@ Rules:
 - should not be confused with a stored hash
 - should be handled carefully in APIs and logs
 
-The core models raw password input and hashed password output as different types.
+Current validation behavior:
+
+- must be between 8 and 1024 characters
+- cannot be empty
+- cannot contain newlines
+- remains distinct from `PasswordHash`
 
 ## Identity
 
 ## `User`
 
-Represents an account within a tenant-aware auth system.
+Represents an account in the auth domain.
 
-Required fields:
+Current fields:
 
 - `UserId`
 - `Email`
-- status
-- created timestamp
+- `UserStatus`
+- `created_at`
 
-Expected status examples:
+Current status values:
 
-- active
-- locked
-- disabled or banned
+- `Active`
+- `Locked`
+- `Disabled`
 
 Invariants:
 
 - user identity is stable through `UserId`
-- auth flows must check status before issuing new sessions
+- auth flows check status before issuing new sessions
 - status is domain state, not an HTTP concern
 
 ## `Tenant`
 
 Represents a tenant boundary.
 
-Required fields:
+Current fields:
 
 - `TenantId`
 - slug
-- optional settings
+- optional `TenantSettings`
 
-Invariants:
+Current notes:
 
+- slug validation stays lowercase ASCII plus `-`
 - tenant identity is stable through `TenantId`
-- RBAC is scoped to tenant
-- user lookup operations in the core are expected to be tenant-aware
+- RBAC is tenant-scoped
+- user lookup operations in the core are tenant-aware
+- `TenantSettings` is optional tenant metadata stored as a string map
 
 ## Auth Concepts
 
@@ -103,42 +114,48 @@ Core expectation:
 
 - hashes use Argon2id semantics
 
-This is still abstracted behind a port, but the intended implementation is Argon2id. The core is not designed around insecure algorithm swapping.
+This stays abstracted behind `PasswordHasher`, but the intended outer
+implementation is Argon2id. The core is not designed around insecure algorithm
+swapping.
 
 ## `AccessToken`
 
-Represents a short-lived signed token, expected to be a JWT.
+Represents a short-lived signed token with JWT-like semantics.
 
 Invariants:
 
 - signed, not opaque
 - short-lived
 - derived from `Claims`
-- verification happens through a port
+- verification happens through `TokenSigner`
 
 The core treats it as a token value, not as an HTTP bearer header.
 
 ## `Claims`
 
-Represents the identity and authorization facts embedded into an access token.
+Represents the identity facts embedded into an access token.
 
-Expected contents:
+Current fields:
 
-- `UserId`
+- subject `UserId`
 - `TenantId`
-- token purpose
-- issued/expiry timestamps
-- enough role or permission context for authenticated access decisions if that is the chosen design
+- `TokenPurpose`
+- `issued_at`
+- `expires_at`
 
-Claims must not weaken the tenant boundary.
+Current notes:
+
+- claims do not currently embed roles or permissions
+- login and refresh load tenant-scoped roles before signing a new access token
+- claims must not weaken the tenant boundary
 
 ## `TokenPurpose`
 
-Represents why a token exists.
+Represents why a signed token exists.
 
-Minimum expected use:
+Current variant:
 
-- distinguish access tokens from any other signed token the core may later support
+- `Access`
 
 ## Session
 
@@ -146,7 +163,7 @@ Minimum expected use:
 
 Represents a refresh-capable authenticated session.
 
-Required fields:
+Current fields:
 
 - `SessionId`
 - `UserId`
@@ -179,50 +196,58 @@ The previous refresh token becomes invalid after rotation.
 
 ## RBAC
 
-## `Role`
-
-Tenant-scoped authorization role.
-
-Required fields:
-
-- `RoleId`
-- `TenantId`
-- role name or key
-- a permission set or permission references
-
-Invariant:
-
-- a role exists inside exactly one tenant scope
-
 ## `Permission`
 
 Represents a concrete authorization capability.
 
-Examples might be strings or typed values such as:
+Current representation is a lowercase ASCII string with a namespace separator `.`.
+
+Examples:
 
 - `users.read`
 - `users.write`
 - `sessions.revoke`
 
-The core should keep permission representation simple and explicit.
+Permissions reject empty values, missing namespace separators, and invalid character shapes.
+
+## `Role`
+
+Tenant-scoped authorization role.
+
+Current fields:
+
+- `RoleId`
+- `TenantId`
+- role name
+- explicit permission set
+
+Invariant:
+
+- a role exists inside exactly one tenant scope
 
 ## `RoleAssignment`
 
 Represents a relation between a user and a role within a tenant.
 
-Minimum relationship:
+Current fields:
 
+- `TenantId`
 - `UserId`
 - `RoleId`
-- `TenantId`
 
 Invariant:
 
 - assignment scope must match both the role tenant and the request tenant
 
-## Tenant-Scoped Role Registry
+## `RoleRegistry`
 
-Represents the available roles and permissions for a tenant.
+Represents the available roles for one tenant.
+
+Current shape:
+
+- one `TenantId`
+- a list of `Role` values
+- validation that every role belongs to the same tenant
 
 Invariant:
 
@@ -232,7 +257,7 @@ There is no global admin concept in `nythos-core`.
 
 ## Relationships
 
-- a `User` can have many `Session` records in one or more tenants, depending on the surrounding product rules
+- a `User` can have many `Session` records
 - a `Session` references exactly one `User` and one `Tenant`
 - a `RoleAssignment` links a `User` to a `Role` within one `Tenant`
 - an `AccessToken` is issued from `Claims`
@@ -242,7 +267,8 @@ There is no global admin concept in `nythos-core`.
 
 - all role lookups are tenant-scoped
 - a session belongs to exactly one user and one tenant
-- refresh tokens are opaque and rotatable
+- refresh tokens are opaque and rotated on every successful refresh
 - access tokens are short-lived and signed
+- claims carry subject, tenant, purpose, and issue/expiry timestamps
 - raw passwords and stored hashes are separate types
 - the core never maps these concepts to HTTP or transport details

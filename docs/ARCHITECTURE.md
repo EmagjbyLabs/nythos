@@ -1,6 +1,10 @@
 # Architecture
 
-This document defines what `nythos-core` is allowed to contain and what must stay out.
+This document defines what `nythos-core` contains today and what must stay out.
+
+The crate already includes implemented domain types, auth/session/RBAC models,
+orchestration services, and boundary ports. These notes describe the constraints
+those modules follow.
 
 ## Boundary
 
@@ -18,8 +22,8 @@ It does not own:
 - HTTP handlers, routers, middleware, or status codes
 - SQL queries, ORM models, migrations, or database drivers
 - Redis clients, cache adapters, queues, or event buses
-- email, SMS, OAuth provider, or webhook integrations
-- concrete signing libraries or password hasher implementations
+- email, SMS, OAuth providers, or webhook integrations
+- concrete signing libraries or password-hasher implementations
 - product-specific admin models or deployment concerns
 
 ## Five Layers
@@ -39,10 +43,10 @@ It does not own:
 
 3. Auth
 
-- password hash concepts
-- credentials and login state concepts
-- access token and claims concepts
+- password-hash concepts
+- access-token and claims concepts
 - token purpose
+- register, login, refresh, and revoke orchestration services
 
 4. Session + RBAC
 
@@ -51,83 +55,90 @@ It does not own:
 - `Role`
 - `Permission`
 - `RoleAssignment`
-- tenant-scoped role registry
+- `RoleRegistry`
 
 5. Ports
 
 - repository traits
 - cryptographic service traits
-- revocation checking traits
+- revocation-checking traits
+- small domain-facing helper payloads for boundary operations
 
 ## Dependency Direction
 
 Dependencies point inward.
 
-- `domain`, `error` should depend on nothing domain-external
-- `auth`, `session`, and `rbac` can depend on primitives and shared domain types
-- `ports` can reference domain types because they describe contracts around them
-- infrastructure must depend on the core, not the other way around
+- `domain` and `error` depend on nothing domain-external
+- `auth`, `session`, and `rbac` depend on primitives and shared domain types
+- `ports` reference domain types because they describe contracts around them
+- infrastructure depends on the core, not the other way around
 
-Practical rule: core code may call trait methods defined in `ports`, but it may not import infrastructure implementations.
+Practical rule: core code may call trait methods defined in `ports`, but it may
+not import infrastructure implementations.
 
 ## Module Boundaries
 
 ## `error`
 
-Contains the single core error enum and the standard result alias.
+Contains the single core error enum `AuthError` and the standard result alias
+`NythosResult`.
 
 ## `domain`
 
-Contains foundational types and identity models that are shared across the rest of the crate.
+Contains foundational types and identity models shared across the rest of the crate.
 
-Expected contents:
+Contains:
 
 - typed ID newtypes over `Uuid`
+- `UserId`, `TenantId`, `SessionId`, `RoleId`
 - `Email`
 - `Password`
 - `User`
+- `UserStatus`
 - `Tenant`
-- shared status enums or small supporting value objects
+- `TenantSettings`
 
 ## `auth`
 
 Contains auth-specific concepts and orchestration logic.
 
-Expected contents:
+Contains:
 
 - `PasswordHash`
-- login attempt or lockout state concepts
 - `AccessToken`
 - `Claims`
 - `TokenPurpose`
-- register, login, and refresh services or use-case functions
+- `RegisterService`
+- `LoginService`
+- `RefreshService`
+- `RevokeSessionService`
+- `RevokeAllSessionsService`
 
 ## `session`
 
-Contains the session model and refresh token concepts.
+Contains the session model and refresh-token concepts.
 
-Expected contents:
+Contains:
 
 - `Session`
 - `RefreshToken`
-- session lifecycle rules
 
 ## `rbac`
 
 Contains tenant-scoped authorization concepts.
 
-Expected contents:
+Contains:
 
 - `Role`
 - `Permission`
 - `RoleAssignment`
-- tenant role registry logic or supporting types
+- `RoleRegistry`
 
 ## `ports`
 
 Contains pure trait contracts only.
 
-Expected contents:
+Contains:
 
 - `UserRepository`
 - `RoleRepository`
@@ -135,6 +146,11 @@ Expected contents:
 - `PasswordHasher`
 - `TokenSigner`
 - `RevocationChecker`
+- `NewUser`
+- `UserCredentials`
+- `RoleAssignmentInput`
+- `SessionRecord`
+- `RefreshTokenRotation`
 
 No default adapters belong here.
 
@@ -146,18 +162,20 @@ Examples:
 
 - loading and persisting users
 - hashing and verifying passwords
-- signing and verifying tokens
-- storing and revoking sessions
+- signing and verifying access tokens
+- storing, rotating, and revoking sessions
 
-Ports are not extension points for arbitrary plugin systems. They exist because the core must remain deployment-agnostic.
+Ports are not extension points for arbitrary plugin systems. They exist because
+the core must remain deployment-agnostic.
 
 ## Why One Crate
 
-`nythos-core` starts as a single library crate with internal modules because:
+`nythos-core` is kept as a single library crate with internal modules because:
 
 - the current scope is small enough to keep in one crate
 - the boundaries are logical, not packaging-driven
-- early splitting would add maintenance cost without solving a real problem
-- internal module boundaries are enough to keep architecture clean at this stage
+- splitting now would add maintenance cost without solving a real problem
+- internal module boundaries are enough to keep the architecture clean
 
-This can change later if compile-time, ownership, or public API pressure makes a split useful. Until then, keep it flat.
+A split can still happen later if compile-time, ownership, or public API pressure
+makes it useful. Until then, keep it flat.

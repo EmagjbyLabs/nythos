@@ -148,8 +148,8 @@ impl RegisterResult {
 /// This flow:
 /// - validates email and password through core value objects
 /// - enforces tenant-scoped uniqueness through `UserRepository`
-/// - hashes the password through `UserRepository`
-/// - persistes the user through `UserRepository`
+/// - hashes the password through `PasswordHasher`
+/// - persists the user through `UserRepository`
 /// - optionally creates a session and signed access token through `SessionStore` and `TokenSigner`
 pub struct RegisterService<'a, U, S, H, T> {
     user_repository: &'a U,
