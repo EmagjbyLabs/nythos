@@ -35,7 +35,7 @@ pub fn operator_role(tenant_id: TenantId) -> Role {
     Role::new(
         RoleId::generate(),
         tenant_id,
-        "operator".to_owned(),
+        "operator",
         [Permission::new("shipments.read").unwrap()],
     )
     .unwrap()
