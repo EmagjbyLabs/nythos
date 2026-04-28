@@ -5,7 +5,7 @@ use crate::{AuthError, NythosResult, TenantId, UserId};
 /// Stored password hash produced by the configured password hasher.
 ///
 /// This is a first-class domain type so the core never passes stored hashes
-/// around as base strings.
+/// around as plain strings.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PasswordHash(String);
 

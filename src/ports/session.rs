@@ -1,6 +1,10 @@
 use crate::{NythosResult, RefreshToken, Session, SessionId, TenantId, UserId};
 
-/// Session creation payload used by auth services when persisting a fresh session.
+/// Domain-facing session payload used when auth services persist or reload a
+/// session together with its current opaque refresh token.
+///
+/// This keeps the contract focused on core session state instead of storage
+/// rows, token tables, or transport-layer cookie shapes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionRecord {
     session: Session,
@@ -31,6 +35,7 @@ impl SessionRecord {
 /// Refresh-token rotation command.
 ///
 /// Makes one-time rotation semantics explicit at the contract boundary.
+/// This is a domain-facing command, not a storage-specific mutation DTO.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RefreshTokenRotation {
     session_id: SessionId,

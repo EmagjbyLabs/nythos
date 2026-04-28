@@ -1,23 +1,98 @@
 # Ports
 
-Ports are pure trait contracts required by `nythos-core`.
+Ports are pure trait contracts required by the implemented `nythos-core`.
 
-They exist so the core can express what it needs without taking a dependency on infrastructure.
+They exist so the core can express what it needs without taking a dependency on
+infrastructure.
 
 Rules for all ports:
 
 - traits belong in `nythos-core`
 - implementations belong outside `nythos-core`
-- ports must stay focused on domain needs, not transport or storage details
+- ports stay focused on domain needs, not transport or storage details
 - ports must not expose HTTP types, SQL types, framework types, or driver-specific errors
+
+## Boundary Helper Structs
+
+The core currently uses small helper structs at the port boundary. These are
+domain-facing payloads, not storage rows, transport DTOs, or framework request
+objects.
+
+## `NewUser`
+
+Used by:
+
+- `UserRepository::create`
+- `RegisterService`
+
+Why it exists:
+
+- keeps user-creation input focused on validated core data
+- avoids repository contracts that depend on storage-specific creation payloads
+- keeps password-hash transport separate from the user identity payload
+
+## `UserCredentials`
+
+Used by:
+
+- `UserRepository::find_credentials_by_email`
+- `LoginService`
+
+Why it exists:
+
+- returns the authenticated `User` together with the stored `PasswordHash`
+- lets password verification happen in the core service instead of inside the repository
+- avoids leaking persistence layout details into login orchestration
+
+## `RoleAssignmentInput`
+
+Used by:
+
+- `RoleRepository::assign_role`
+- `RoleRepository::revoke_role`
+
+Why it exists:
+
+- keeps tenant, user, and role scope explicit in one value
+- avoids ambiguous multi-argument role-mutation calls at the boundary
+- stays domain-oriented instead of mirroring a join row or API payload
+
+## `SessionRecord`
+
+Used by:
+
+- `SessionStore::create_session`
+- `SessionStore::find_by_refresh_token`
+- register and login session issuance
+- refresh-token lookup before rotation
+
+Why it exists:
+
+- keeps a `Session` and its current opaque `RefreshToken` together at the boundary
+- matches the core need to create and reload refresh-capable session state
+- avoids coupling the core to token-table, cache, or cookie-specific shapes
+
+## `RefreshTokenRotation`
+
+Used by:
+
+- `SessionStore::rotate_refresh_token`
+- `RefreshService`
+
+Why it exists:
+
+- makes one-time refresh-token rotation explicit at the contract boundary
+- carries the session identity plus both the previous and next opaque refresh tokens
+- keeps refresh rotation domain-facing instead of storage-operation-specific
 
 ## `UserRepository`
 
 Responsibility:
 
-- find user by email within tenant
-- find user by ID within tenant
-- create user
+- find a user by email within a tenant
+- find a user by ID within a tenant
+- find login credentials by email within a tenant
+- create a user
 - update user status
 
 Must not do:
@@ -33,57 +108,82 @@ Core assumptions:
 - duplicate detection can be enforced reliably enough for registration flows
 - returned users reflect current status
 
-Pseudo-signature:
+Implemented contract:
 
 ```rust
 trait UserRepository {
     fn find_by_email(&self, tenant_id: TenantId, email: &Email) -> NythosResult<Option<User>>;
     fn find_by_id(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Option<User>>;
-    fn create(&self, tenant_id: TenantId, user: NewUser, password_hash: PasswordHash) -> NythosResult<User>;
-    fn update_status(&self, tenant_id: TenantId, user_id: UserId, status: UserStatus) -> NythosResult<()>;
+    fn find_credentials_by_email(
+        &self,
+        tenant_id: TenantId,
+        email: &Email,
+    ) -> NythosResult<Option<UserCredentials>>;
+    fn create(
+        &self,
+        tenant_id: TenantId,
+        new_user: NewUser,
+        password_hash: PasswordHash,
+    ) -> NythosResult<User>;
+    fn update_status(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+        status: UserStatus,
+    ) -> NythosResult<()>;
 }
 ```
 
-`NewUser` can be introduced if needed during implementation. The important part is that creation does not accept raw persistence details.
+Flow notes:
+
+- registration uses `find_by_email` for tenant-scoped duplicate checks
+- login uses `find_credentials_by_email` so password verification stays in the core service
+- `create` accepts `NewUser` plus `PasswordHash`, not raw persistence fields
 
 ## `RoleRepository`
 
 Responsibility:
 
-- assign role to user within tenant
-- revoke role from user within tenant
-- get roles for user within tenant
+- assign a role to a user within a tenant
+- revoke a role from a user within a tenant
+- get roles for a user within a tenant
 
 Must not do:
 
 - cross-tenant role resolution
 - policy decisions outside role membership and retrieval
-- global admin shortcuts
+- global-admin shortcuts
 
 Core assumptions:
 
 - all operations are tenant-scoped
 - returned roles belong to the same tenant that was requested
 
-Pseudo-signature:
+Implemented contract:
 
 ```rust
 trait RoleRepository {
-    fn assign_role(&self, tenant_id: TenantId, user_id: UserId, role_id: RoleId) -> NythosResult<()>;
-    fn revoke_role(&self, tenant_id: TenantId, user_id: UserId, role_id: RoleId) -> NythosResult<()>;
+    fn assign_role(&self, input: RoleAssignmentInput) -> NythosResult<()>;
+    fn revoke_role(&self, input: RoleAssignmentInput) -> NythosResult<()>;
     fn get_roles_for_user(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Vec<Role>>;
 }
 ```
+
+Flow notes:
+
+- login loads tenant-scoped roles through `get_roles_for_user`
+- refresh reloads tenant-scoped roles through `get_roles_for_user`
+- assignment and revocation stay explicit through `RoleAssignmentInput`
 
 ## `SessionStore`
 
 Responsibility:
 
-- create session
-- find session by refresh token
-- revoke session by session ID
-- revoke all sessions for user in tenant
-- support refresh token rotation as part of session lifecycle
+- create a session
+- find a session by refresh token
+- rotate a refresh token for a session
+- revoke a session by session ID
+- revoke all sessions for a user in a tenant
 
 Must not do:
 
@@ -93,30 +193,38 @@ Must not do:
 
 Core assumptions:
 
-- refresh token lookup returns the owning session context
-- refresh token rotation invalidates the previous token
+- refresh-token lookup returns the owning session context
+- refresh-token rotation invalidates the previous token
 - revoke-all is tenant-scoped
 
-Pseudo-signature:
+Implemented contract:
 
 ```rust
 trait SessionStore {
-    fn create_session(&self, session: Session, refresh_token: RefreshToken) -> NythosResult<()>;
-    fn find_by_refresh_token(&self, refresh_token: &RefreshToken) -> NythosResult<Option<SessionRecord>>;
-    fn rotate_refresh_token(&self, session_id: SessionId, previous: &RefreshToken, next: RefreshToken) -> NythosResult<()>;
+    fn create_session(&self, record: SessionRecord) -> NythosResult<()>;
+    fn find_by_refresh_token(
+        &self,
+        refresh_token: &RefreshToken,
+    ) -> NythosResult<Option<SessionRecord>>;
+    fn rotate_refresh_token(&self, rotation: RefreshTokenRotation) -> NythosResult<()>;
     fn revoke_session(&self, session_id: SessionId) -> NythosResult<()>;
     fn revoke_all_for_user(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<()>;
 }
 ```
 
-`SessionRecord` can include the `Session` plus whatever minimal refresh linkage the core needs.
+Flow notes:
+
+- register and login persist newly issued session state through `create_session`
+- refresh resolves the current session through `find_by_refresh_token`
+- refresh rotates opaque refresh tokens through `rotate_refresh_token`
+- revoke-one and revoke-all use the revoke methods directly
 
 ## `PasswordHasher`
 
 Responsibility:
 
-- hash password into `PasswordHash`
-- verify raw password against stored hash
+- hash `Password` into `PasswordHash`
+- verify raw password against a stored hash
 
 Must not do:
 
@@ -130,7 +238,7 @@ Core assumptions:
 - verification is constant-time where relevant to the underlying library
 - failures are surfaced as core errors, not library-specific types
 
-Pseudo-signature:
+Implemented contract:
 
 ```rust
 trait PasswordHasher {
@@ -139,7 +247,8 @@ trait PasswordHasher {
 }
 ```
 
-`nythos-core` expects Argon2id. The abstraction exists for deployment separation, not for treating weak algorithms as equivalent options.
+`nythos-core` expects Argon2id. The abstraction exists for deployment
+separation, not for treating weak algorithms as equivalent options.
 
 ## `TokenSigner`
 
@@ -151,16 +260,16 @@ Responsibility:
 Must not do:
 
 - HTTP header parsing
-- session store lookups
+- session-store lookups
 - revocation policy decisions by itself
 
 Core assumptions:
 
 - access tokens are short-lived and signed
 - verification rejects invalid or expired tokens
-- token purpose checks can be enforced through claims
+- token-purpose checks can be enforced through claims
 
-Pseudo-signature:
+Implemented contract:
 
 ```rust
 trait TokenSigner {
@@ -178,6 +287,7 @@ Responsibility:
 Primary use:
 
 - outer layers call this during authenticated request handling after token verification
+- `RefreshService` calls it before issuing fresh auth material
 
 Must not do:
 
@@ -189,7 +299,7 @@ Core assumptions:
 - revocation check is based on session identity or equivalent session context
 - revoked sessions cause future authenticated requests to fail
 
-Pseudo-signature:
+Implemented contract:
 
 ```rust
 trait RevocationChecker {
@@ -199,7 +309,7 @@ trait RevocationChecker {
 
 ## Notes On Port Shape
 
-- async vs sync is an implementation detail to settle with actual crate constraints; the contract boundaries matter more than the exact keyword right now
+- the traits are synchronous today and accept or return domain types plus small helper payloads
 - traits should accept and return domain types, not storage DTOs
-- if helper input structs are needed, keep them small and domain-oriented
+- helper structs stay small and domain-oriented because they model boundary intent, not infrastructure schemas
 - ports are contracts only, not adapters, mocks, or default implementations

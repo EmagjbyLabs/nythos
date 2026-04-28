@@ -1,7 +1,8 @@
 //!
 //! Public core library for Nythos.
 //!
-//! `nythos-core` contains domain logic and trait contracts only.
+//! `nythos-core` contains implemented domain models, orchestration services,
+//! and trait contracts only.
 //! It intentionally excludes HTTP, storage drivers, and other infrastructure.
 
 pub mod auth;
