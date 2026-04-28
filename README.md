@@ -1,7 +1,6 @@
 # nythos-core
 
 `nythos-core` is the public Rust OSS core library for Nythos.
-
 Nythos is the authentication and authorization system in the Emagjby ecosystem.
 
 ## Scope
@@ -53,9 +52,9 @@ This repo is documentation-first so implementation can start with stable boundar
 
 See:
 
-- `ARCHITECTURE.md`
-- `DOMAIN_MODEL.md`
-- `PORTS.md`
-- `FLOWS.md`
-- `ERRORS.md`
-- `docs/adr/`
+- `docs/ARCHITECTURE.md`
+- `docs/DOMAIN_MODEL.md`
+- `docs/PORTS.md`
+- `docs/FLOWS.md`
+- `docs/ERRORS.md`
+- `docs/docs/adr/`
