@@ -3,6 +3,8 @@
 //! This module contains types such as `PasswordHash`, `Claims`,
 //! `AccessToken`, and auth flow services.
 
+mod issuance;
+
 pub mod login;
 pub mod refresh;
 pub mod register;
