@@ -78,10 +78,10 @@ impl RefreshTokenRotation {
 /// - revoke-all is always tenant-scoped
 pub trait SessionStore {
     /// Persists a newly issued session together with its initial refresh token.
-    fn create_session(&self, record: SessionRecord) -> NythosResult<()>;
+    async fn create_session(&self, record: SessionRecord) -> NythosResult<()>;
 
     /// Finds the session currently associated with an opaque refresh token.
-    fn find_by_refresh_token(
+    async fn find_by_refresh_token(
         &self,
         refresh_token: &RefreshToken,
     ) -> NythosResult<Option<SessionRecord>>;
@@ -90,11 +90,11 @@ pub trait SessionStore {
     ///
     /// Implementations should treat the `previous` token as invalid after a
     /// successful rotation.
-    fn rotate_refresh_token(&self, rotation: RefreshTokenRotation) -> NythosResult<()>;
+    async fn rotate_refresh_token(&self, rotation: RefreshTokenRotation) -> NythosResult<()>;
 
     /// Revokes a single session by ID.
-    fn revoke_session(&self, session_id: SessionId) -> NythosResult<()>;
+    async fn revoke_session(&self, session_id: SessionId) -> NythosResult<()>;
 
     /// Revokes all sessions owned by a user within a specific tenant.
-    fn revoke_all_for_user(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<()>;
+    async fn revoke_all_for_user(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<()>;
 }

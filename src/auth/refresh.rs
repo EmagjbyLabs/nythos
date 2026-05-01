@@ -121,21 +121,24 @@ where
         }
     }
 
-    pub fn refresh(&self, input: RefreshInput) -> NythosResult<RefreshAuthMaterial> {
+    pub async fn refresh(&self, input: RefreshInput) -> NythosResult<RefreshAuthMaterial> {
         let previous_refresh = RefreshToken::new(input.refresh_token().to_owned())?;
 
         let record = self
             .session_store
-            .find_by_refresh_token(&previous_refresh)?
+            .find_by_refresh_token(&previous_refresh)
+            .await?
             .ok_or(AuthError::InvalidCredentials)?;
 
         let session = record.session().clone();
 
-        self.ensure_session_can_refresh(&session, input.issued_at())?;
+        self.ensure_session_can_refresh(&session, input.issued_at())
+            .await?;
 
         let roles = self
             .role_repository
-            .get_roles_for_user(session.tenant_id(), session.user_id())?;
+            .get_roles_for_user(session.tenant_id(), session.user_id())
+            .await?;
 
         let claims = Claims::access(
             session.user_id(),
@@ -144,7 +147,7 @@ where
             input.access_token_ttl(),
         )?;
 
-        let access_token = self.token_signer.sign(&claims)?;
+        let access_token = self.token_signer.sign(&claims).await?;
         let next_refresh = RefreshToken::new(Uuid::new_v4().to_string())?;
 
         self.session_store
@@ -152,7 +155,8 @@ where
                 session.id(),
                 previous_refresh,
                 next_refresh.clone(),
-            ))?;
+            ))
+            .await?;
 
         Ok(RefreshAuthMaterial::new(
             session,
@@ -163,8 +167,12 @@ where
         ))
     }
 
-    fn ensure_session_can_refresh(&self, session: &Session, now: SystemTime) -> NythosResult<()> {
-        if session.is_revoked() || self.revocation_checker.is_revoked(session.id())? {
+    async fn ensure_session_can_refresh(
+        &self,
+        session: &Session,
+        now: SystemTime,
+    ) -> NythosResult<()> {
+        if session.is_revoked() || self.revocation_checker.is_revoked(session.id()).await? {
             return Err(AuthError::SessionRevoked);
         }
 

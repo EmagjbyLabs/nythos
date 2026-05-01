@@ -6,7 +6,7 @@ The steps below describe domain flow order, not HTTP endpoints.
 
 ## Register
 
-`RegisterService::register` orchestrates tenant-scoped registration and can
+`RegisterService::register` is async and orchestrates tenant-scoped registration and can
 optionally return signed auth material.
 
 ### Inputs
@@ -61,7 +61,7 @@ optionally return signed auth material.
 
 ## Login
 
-`LoginService::login` authenticates credentials, loads current tenant-scoped
+`LoginService::login` is async, authenticates credentials, loads current tenant-scoped
 roles, and issues fresh session auth material.
 
 ### Inputs
@@ -123,7 +123,7 @@ roles, and issues fresh session auth material.
 
 ## Token Refresh
 
-`RefreshService::refresh` resolves an opaque refresh token into session context,
+`RefreshService::refresh` is async, resolves an opaque refresh token into session context,
 checks revocation and expiry, reloads tenant-scoped roles, and rotates the
 refresh token.
 
@@ -184,7 +184,7 @@ refresh token.
 
 ## Revoke Single Session
 
-`RevokeSessionService::revoke` revokes one session ID or short-circuits if the
+`RevokeSessionService::revoke` is async, revokes one session ID or short-circuits if the
 session is already known as revoked.
 
 ### Inputs
@@ -224,7 +224,7 @@ session is already known as revoked.
 
 ## Revoke All Sessions
 
-`RevokeAllSessionsService::revoke_all` revokes all sessions for one user inside
+`RevokeAllSessionsService::revoke_all` is async and revokes all sessions for one user inside
 one tenant.
 
 ### Inputs

@@ -47,11 +47,15 @@ impl RoleAssignmentInput {
 /// revoking user-role membership inside a tenant.
 pub trait RoleRepository {
     /// Assigns a role to a user within the provided tenant boundary.
-    fn assign_role(&self, input: RoleAssignmentInput) -> NythosResult<()>;
+    async fn assign_role(&self, input: RoleAssignmentInput) -> NythosResult<()>;
 
     /// Revokes a role from a user within the provided tenant boundary.
-    fn revoke_role(&self, input: RoleAssignmentInput) -> NythosResult<()>;
+    async fn revoke_role(&self, input: RoleAssignmentInput) -> NythosResult<()>;
 
     /// Loads all roles currently assigned to a user within one tenant.
-    fn get_roles_for_user(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Vec<Role>>;
+    async fn get_roles_for_user(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+    ) -> NythosResult<Vec<Role>>;
 }

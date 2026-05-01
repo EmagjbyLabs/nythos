@@ -1,5 +1,6 @@
 mod support;
 
+use futures::executor::block_on;
 use nythos_core::{
     Claims, PasswordHasher, RevocationChecker, SessionId, TenantId, TokenSigner, UserId,
 };
@@ -7,44 +8,50 @@ use support::{FakePasswordHasher, FakeRevocationChecker, FakeTokenSigner, fixtur
 
 #[test]
 fn password_hasher_supports_deterministic_test_hash_and_verify_flow() {
-    let hasher = FakePasswordHasher;
-    let password = fixtures::canonical_password();
+    block_on(async {
+        let hasher = FakePasswordHasher;
+        let password = fixtures::canonical_password();
 
-    let hash = hasher.hash(&password).unwrap();
+        let hash = hasher.hash(&password).await.unwrap();
 
-    assert!(hasher.verify(&password, &hash).unwrap());
+        assert!(hasher.verify(&password, &hash).await.unwrap());
+    });
 }
 
 #[test]
 fn token_signer_signs_and_verifies_core_claims() {
-    let signer = FakeTokenSigner;
-    let user_id = UserId::generate();
-    let tenant_id = TenantId::generate();
-    let claims = Claims::access(
-        user_id,
-        tenant_id,
-        fixtures::canonical_issued_at(),
-        fixtures::canonical_access_token_ttl(),
-    )
-    .unwrap();
+    block_on(async {
+        let signer = FakeTokenSigner;
+        let user_id = UserId::generate();
+        let tenant_id = TenantId::generate();
+        let claims = Claims::access(
+            user_id,
+            tenant_id,
+            fixtures::canonical_issued_at(),
+            fixtures::canonical_access_token_ttl(),
+        )
+        .unwrap();
 
-    let token = signer.sign(&claims).unwrap();
-    let verified = signer.verify(&token).unwrap();
+        let token = signer.sign(&claims).await.unwrap();
+        let verified = signer.verify(&token).await.unwrap();
 
-    assert_eq!(verified.subject(), user_id);
-    assert_eq!(verified.tenant_id(), tenant_id);
+        assert_eq!(verified.subject(), user_id);
+        assert_eq!(verified.tenant_id(), tenant_id);
+    });
 }
 
 #[test]
 fn revocation_checker_reports_revoked_session_ids() {
-    let checker = FakeRevocationChecker::default();
-    let revoked_session_id = SessionId::generate();
-    let active_session_id = SessionId::generate();
+    block_on(async {
+        let checker = FakeRevocationChecker::default();
+        let revoked_session_id = SessionId::generate();
+        let active_session_id = SessionId::generate();
 
-    checker.mark_revoked(revoked_session_id);
+        checker.mark_revoked(revoked_session_id);
 
-    assert!(checker.is_revoked(revoked_session_id).unwrap());
-    assert!(!checker.is_revoked(active_session_id).unwrap());
+        assert!(checker.is_revoked(revoked_session_id).await.unwrap());
+        assert!(!checker.is_revoked(active_session_id).await.unwrap());
+    });
 }
 
 #[test]

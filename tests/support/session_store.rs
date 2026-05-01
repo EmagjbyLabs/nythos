@@ -30,7 +30,7 @@ impl Default for InMemorySessionStore {
 }
 
 impl SessionStore for InMemorySessionStore {
-    fn create_session(&self, record: SessionRecord) -> NythosResult<()> {
+    async fn create_session(&self, record: SessionRecord) -> NythosResult<()> {
         let session_id = record.session().id();
         let refresh_key = record.refresh_token().as_str().to_owned();
 
@@ -41,7 +41,7 @@ impl SessionStore for InMemorySessionStore {
         Ok(())
     }
 
-    fn find_by_refresh_token(
+    async fn find_by_refresh_token(
         &self,
         refresh_token: &RefreshToken,
     ) -> NythosResult<Option<SessionRecord>> {
@@ -54,7 +54,7 @@ impl SessionStore for InMemorySessionStore {
             .cloned())
     }
 
-    fn rotate_refresh_token(&self, rotation: RefreshTokenRotation) -> NythosResult<()> {
+    async fn rotate_refresh_token(&self, rotation: RefreshTokenRotation) -> NythosResult<()> {
         let (session_id, previous, next) = rotation.into_parts();
 
         let mut index = self.refresh_index.borrow_mut();
@@ -80,7 +80,7 @@ impl SessionStore for InMemorySessionStore {
         Ok(())
     }
 
-    fn revoke_session(&self, session_id: SessionId) -> NythosResult<()> {
+    async fn revoke_session(&self, session_id: SessionId) -> NythosResult<()> {
         let mut records = self.records.borrow_mut();
         let record = records
             .get_mut(&session_id)
@@ -95,7 +95,7 @@ impl SessionStore for InMemorySessionStore {
         Ok(())
     }
 
-    fn revoke_all_for_user(
+    async fn revoke_all_for_user(
         &self,
         tenant_id: nythos_core::TenantId,
         user_id: nythos_core::UserId,

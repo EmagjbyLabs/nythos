@@ -7,10 +7,10 @@ use crate::{AccessToken, Claims, NythosResult, Password, PasswordHash, SessionId
 /// equivalent alternatives.
 pub trait PasswordHasher {
     /// Hashes a validated raw password into a stored password-hash value.
-    fn hash(&self, password: &Password) -> NythosResult<PasswordHash>;
+    async fn hash(&self, password: &Password) -> NythosResult<PasswordHash>;
 
     /// Verifies a validated raw password against a stored hash.
-    fn verify(&self, password: &Password, hash: &PasswordHash) -> NythosResult<bool>;
+    async fn verify(&self, password: &Password, hash: &PasswordHash) -> NythosResult<bool>;
 }
 
 /// Token signing port used to issue and verify signed access tokens.
@@ -19,10 +19,10 @@ pub trait PasswordHasher {
 /// bearer-header, or concrete JWT-library types at the boundary.
 pub trait TokenSigner {
     /// Signs a structured claim set into an access token.
-    fn sign(&self, claims: &Claims) -> NythosResult<AccessToken>;
+    async fn sign(&self, claims: &Claims) -> NythosResult<AccessToken>;
 
     /// Verifies an access token and returns the structured claims it carries.
-    fn verify(&self, token: &AccessToken) -> NythosResult<Claims>;
+    async fn verify(&self, token: &AccessToken) -> NythosResult<Claims>;
 }
 
 /// Revocation-checking port used by authenticated request flows.
@@ -31,5 +31,5 @@ pub trait TokenSigner {
 /// to reject requests whose owning session has been revoked.
 pub trait RevocationChecker {
     /// Returns whether the provided session has been revoked.
-    fn is_revoked(&self, session_id: SessionId) -> NythosResult<bool>;
+    async fn is_revoked(&self, session_id: SessionId) -> NythosResult<bool>;
 }

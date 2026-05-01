@@ -71,12 +71,18 @@ where
         }
     }
 
-    pub fn revoke(&self, input: RevokeSessionInput) -> NythosResult<RevokeResult> {
-        if self.revocation_checker.is_revoked(input.session_id())? {
+    pub async fn revoke(&self, input: RevokeSessionInput) -> NythosResult<RevokeResult> {
+        if self
+            .revocation_checker
+            .is_revoked(input.session_id())
+            .await?
+        {
             return Ok(RevokeResult::new(false));
         }
 
-        self.session_store.revoke_session(input.session_id())?;
+        self.session_store
+            .revoke_session(input.session_id())
+            .await?;
         Ok(RevokeResult::new(true))
     }
 }
@@ -94,9 +100,10 @@ where
         Self { session_store }
     }
 
-    pub fn revoke_all(&self, input: RevokeAllSessionsInput) -> NythosResult<RevokeResult> {
+    pub async fn revoke_all(&self, input: RevokeAllSessionsInput) -> NythosResult<RevokeResult> {
         self.session_store
-            .revoke_all_for_user(input.tenant_id(), input.user_id())?;
+            .revoke_all_for_user(input.tenant_id(), input.user_id())
+            .await?;
 
         Ok(RevokeResult::new(true))
     }

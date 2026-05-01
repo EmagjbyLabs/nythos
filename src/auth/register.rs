@@ -179,19 +179,21 @@ where
         }
     }
 
-    pub fn register(&self, input: RegisterInput) -> NythosResult<RegisterResult> {
+    pub async fn register(&self, input: RegisterInput) -> NythosResult<RegisterResult> {
         let email = Email::parse(input.email())?;
         let password = Password::new(input.password())?;
 
-        self.ensure_email_available(input.tenant_id(), &email)?;
+        self.ensure_email_available(input.tenant_id(), &email)
+            .await?;
 
-        let password_hash = self.password_hasher.hash(&password)?;
-        let user =
-            self.user_repository
-                .create(input.tenant_id(), NewUser::new(email), password_hash)?;
+        let password_hash = self.password_hasher.hash(&password).await?;
+        let user = self
+            .user_repository
+            .create(input.tenant_id(), NewUser::new(email), password_hash)
+            .await?;
 
         let auth = if input.auto_sign_in() {
-            Some(self.create_auth_material(&input, &user)?)
+            Some(self.create_auth_material(&input, &user).await?)
         } else {
             None
         };
@@ -199,10 +201,11 @@ where
         Ok(RegisterResult::new(user, auth))
     }
 
-    fn ensure_email_available(&self, tenant_id: TenantId, email: &Email) -> NythosResult<()> {
+    async fn ensure_email_available(&self, tenant_id: TenantId, email: &Email) -> NythosResult<()> {
         if self
             .user_repository
-            .find_by_email(tenant_id, email)?
+            .find_by_email(tenant_id, email)
+            .await?
             .is_some()
         {
             return Err(AuthError::ValidationError(
@@ -213,7 +216,7 @@ where
         Ok(())
     }
 
-    fn create_auth_material(
+    async fn create_auth_material(
         &self,
         input: &RegisterInput,
         user: &User,
@@ -226,7 +229,8 @@ where
             input.issued_at(),
             input.access_token_ttl(),
             input.session_ttl(),
-        )?;
+        )
+        .await?;
 
         Ok(RegisterAuthMaterial::new(
             user.clone(),

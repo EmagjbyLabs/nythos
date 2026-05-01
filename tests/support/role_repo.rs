@@ -36,7 +36,7 @@ impl Default for InMemoryRoleRepository {
 }
 
 impl RoleRepository for InMemoryRoleRepository {
-    fn assign_role(&self, input: RoleAssignmentInput) -> NythosResult<()> {
+    async fn assign_role(&self, input: RoleAssignmentInput) -> NythosResult<()> {
         if !self
             .roles
             .borrow()
@@ -62,7 +62,7 @@ impl RoleRepository for InMemoryRoleRepository {
         Ok(())
     }
 
-    fn revoke_role(&self, input: RoleAssignmentInput) -> NythosResult<()> {
+    async fn revoke_role(&self, input: RoleAssignmentInput) -> NythosResult<()> {
         let mut assignments = self.assignments.borrow_mut();
         let entry = assignments
             .get_mut(&(input.tenant_id(), input.user_id()))
@@ -80,7 +80,11 @@ impl RoleRepository for InMemoryRoleRepository {
         Ok(())
     }
 
-    fn get_roles_for_user(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Vec<Role>> {
+    async fn get_roles_for_user(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+    ) -> NythosResult<Vec<Role>> {
         let assignments = self.assignments.borrow();
         let roles = self.roles.borrow();
 

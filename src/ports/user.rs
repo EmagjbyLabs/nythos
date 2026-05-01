@@ -64,16 +64,17 @@ impl UserCredentials {
 /// result model and return shapes, rather than leaking database-specific errors.
 pub trait UserRepository {
     /// Finds a user by normalized email within a specific tenant.
-    fn find_by_email(&self, tenant_id: TenantId, email: &Email) -> NythosResult<Option<User>>;
+    async fn find_by_email(&self, tenant_id: TenantId, email: &Email)
+    -> NythosResult<Option<User>>;
 
     /// Finds a user by ID within a specific tenant.
-    fn find_by_id(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Option<User>>;
+    async fn find_by_id(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Option<User>>;
 
     /// Finds a user and stored password hash by normalized email within a specific tenant.
     ///
     /// This is used by login orchestration so password verification can stay in
     /// the core service while persistence details remain outside the core.
-    fn find_credentials_by_email(
+    async fn find_credentials_by_email(
         &self,
         tenant_id: TenantId,
         email: &Email,
@@ -84,7 +85,7 @@ pub trait UserRepository {
     ///
     /// Implementations should make duplicate handling explicit through the core
     /// error model.
-    fn create(
+    async fn create(
         &self,
         tenant_id: TenantId,
         new_user: NewUser,
@@ -92,7 +93,7 @@ pub trait UserRepository {
     ) -> NythosResult<User>;
 
     /// Updates a user's status within a specific tenant boundary.
-    fn update_status(
+    async fn update_status(
         &self,
         tenant_id: TenantId,
         user_id: UserId,

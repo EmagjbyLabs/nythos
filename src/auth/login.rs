@@ -158,13 +158,14 @@ where
         }
     }
 
-    pub fn login(&self, input: LoginInput) -> NythosResult<LoginAuthMaterial> {
+    pub async fn login(&self, input: LoginInput) -> NythosResult<LoginAuthMaterial> {
         let email = Email::parse(input.email())?;
         let password = Password::new(input.password())?;
 
         let credentials = self
             .user_repository
-            .find_credentials_by_email(input.tenant_id(), &email)?
+            .find_credentials_by_email(input.tenant_id(), &email)
+            .await?
             .ok_or(AuthError::InvalidCredentials)?;
 
         let user = credentials.user().clone();
@@ -173,7 +174,8 @@ where
 
         let verified = self
             .password_hasher
-            .verify(&password, credentials.password_hash())?;
+            .verify(&password, credentials.password_hash())
+            .await?;
 
         if !verified {
             return Err(AuthError::InvalidCredentials);
@@ -181,7 +183,8 @@ where
 
         let roles = self
             .role_repository
-            .get_roles_for_user(input.tenant_id(), user.id())?;
+            .get_roles_for_user(input.tenant_id(), user.id())
+            .await?;
 
         let issued = issue_session_auth(
             self.session_store,
@@ -191,7 +194,8 @@ where
             input.issued_at(),
             input.access_token_ttl(),
             input.session_ttl(),
-        )?;
+        )
+        .await?;
 
         Ok(LoginAuthMaterial::new(
             user,
