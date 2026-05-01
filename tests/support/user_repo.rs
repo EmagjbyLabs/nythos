@@ -29,7 +29,11 @@ impl Default for InMemoryUserRepository {
 }
 
 impl UserRepository for InMemoryUserRepository {
-    fn find_by_email(&self, tenant_id: TenantId, email: &Email) -> NythosResult<Option<User>> {
+    async fn find_by_email(
+        &self,
+        tenant_id: TenantId,
+        email: &Email,
+    ) -> NythosResult<Option<User>> {
         Ok(self
             .users
             .borrow()
@@ -40,7 +44,7 @@ impl UserRepository for InMemoryUserRepository {
             .map(|(_, (user, _))| user.clone()))
     }
 
-    fn find_by_id(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Option<User>> {
+    async fn find_by_id(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Option<User>> {
         Ok(self
             .users
             .borrow()
@@ -48,7 +52,7 @@ impl UserRepository for InMemoryUserRepository {
             .map(|(user, _)| user.clone()))
     }
 
-    fn find_credentials_by_email(
+    async fn find_credentials_by_email(
         &self,
         tenant_id: TenantId,
         email: &Email,
@@ -63,13 +67,17 @@ impl UserRepository for InMemoryUserRepository {
             .map(|(_, (user, hash))| UserCredentials::new(user.clone(), hash.clone())))
     }
 
-    fn create(
+    async fn create(
         &self,
         tenant_id: TenantId,
         new_user: NewUser,
         password_hash: PasswordHash,
     ) -> NythosResult<User> {
-        if self.find_by_email(tenant_id, new_user.email())?.is_some() {
+        if self
+            .find_by_email(tenant_id, new_user.email())
+            .await?
+            .is_some()
+        {
             return Err(AuthError::ValidationError(
                 "user with email already exists in tenant".to_owned(),
             ));
@@ -88,7 +96,7 @@ impl UserRepository for InMemoryUserRepository {
         Ok(user)
     }
 
-    fn update_status(
+    async fn update_status(
         &self,
         tenant_id: TenantId,
         user_id: UserId,

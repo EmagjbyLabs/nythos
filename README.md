@@ -6,7 +6,7 @@ Nythos is the authentication and authorization system in the Emagjby ecosystem.
 ## Package
 
 - crate: `nythos-core`
-- version: `0.1.0`
+- version: `0.1.2`
 - license: `MIT`
 - docs: `https://docs.rs/nythos-core`
 - repository: `https://github.com/EmagjbyLabs/nythos`
@@ -32,7 +32,7 @@ Nythos is the authentication and authorization system in the Emagjby ecosystem.
 
 This crate is intentionally core-only and infrastructure-free.
 
-Everything that touches I/O, transport, storage, external services, or concrete crypto libraries lives outside this crate and is exposed here only through ports.
+Everything that touches I/O, transport, storage, external services, or concrete crypto libraries lives outside this crate and is exposed here only through async ports.
 
 ## Architecture
 

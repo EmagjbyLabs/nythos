@@ -10,11 +10,11 @@ use crate::support::fixtures::{canonical_access_token_ttl, canonical_issued_at};
 pub struct FakePasswordHasher;
 
 impl PasswordHasher for FakePasswordHasher {
-    fn hash(&self, password: &Password) -> NythosResult<PasswordHash> {
+    async fn hash(&self, password: &Password) -> NythosResult<PasswordHash> {
         PasswordHash::new(format!("argon2id${}", password.as_str()))
     }
 
-    fn verify(&self, password: &Password, hash: &PasswordHash) -> NythosResult<bool> {
+    async fn verify(&self, password: &Password, hash: &PasswordHash) -> NythosResult<bool> {
         Ok(hash.as_str() == format!("argon2id${}", password.as_str()))
     }
 }
@@ -23,7 +23,7 @@ impl PasswordHasher for FakePasswordHasher {
 pub struct FakeTokenSigner;
 
 impl TokenSigner for FakeTokenSigner {
-    fn sign(&self, claims: &Claims) -> NythosResult<AccessToken> {
+    async fn sign(&self, claims: &Claims) -> NythosResult<AccessToken> {
         AccessToken::new(format!(
             "signed:{}:{}",
             claims.subject(),
@@ -31,7 +31,7 @@ impl TokenSigner for FakeTokenSigner {
         ))
     }
 
-    fn verify(&self, token: &AccessToken) -> NythosResult<Claims> {
+    async fn verify(&self, token: &AccessToken) -> NythosResult<Claims> {
         if token.as_str().is_empty() {
             return Err(AuthError::InvalidCredentials);
         }
@@ -73,7 +73,7 @@ impl FakeRevocationChecker {
 }
 
 impl RevocationChecker for FakeRevocationChecker {
-    fn is_revoked(&self, session_id: SessionId) -> NythosResult<bool> {
+    async fn is_revoked(&self, session_id: SessionId) -> NythosResult<bool> {
         Ok(self.revoked.borrow().contains(&session_id))
     }
 }

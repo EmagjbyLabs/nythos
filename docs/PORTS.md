@@ -1,6 +1,6 @@
 # Ports
 
-Ports are pure trait contracts required by the implemented `nythos-core`.
+Ports are pure async trait contracts required by the implemented `nythos-core`.
 
 They exist so the core can express what it needs without taking a dependency on
 infrastructure.
@@ -112,20 +112,20 @@ Implemented contract:
 
 ```rust
 trait UserRepository {
-    fn find_by_email(&self, tenant_id: TenantId, email: &Email) -> NythosResult<Option<User>>;
-    fn find_by_id(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Option<User>>;
-    fn find_credentials_by_email(
+    async fn find_by_email(&self, tenant_id: TenantId, email: &Email) -> NythosResult<Option<User>>;
+    async fn find_by_id(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Option<User>>;
+    async fn find_credentials_by_email(
         &self,
         tenant_id: TenantId,
         email: &Email,
     ) -> NythosResult<Option<UserCredentials>>;
-    fn create(
+    async fn create(
         &self,
         tenant_id: TenantId,
         new_user: NewUser,
         password_hash: PasswordHash,
     ) -> NythosResult<User>;
-    fn update_status(
+    async fn update_status(
         &self,
         tenant_id: TenantId,
         user_id: UserId,
@@ -163,9 +163,9 @@ Implemented contract:
 
 ```rust
 trait RoleRepository {
-    fn assign_role(&self, input: RoleAssignmentInput) -> NythosResult<()>;
-    fn revoke_role(&self, input: RoleAssignmentInput) -> NythosResult<()>;
-    fn get_roles_for_user(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Vec<Role>>;
+    async fn assign_role(&self, input: RoleAssignmentInput) -> NythosResult<()>;
+    async fn revoke_role(&self, input: RoleAssignmentInput) -> NythosResult<()>;
+    async fn get_roles_for_user(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Vec<Role>>;
 }
 ```
 
@@ -201,14 +201,14 @@ Implemented contract:
 
 ```rust
 trait SessionStore {
-    fn create_session(&self, record: SessionRecord) -> NythosResult<()>;
-    fn find_by_refresh_token(
+    async fn create_session(&self, record: SessionRecord) -> NythosResult<()>;
+    async fn find_by_refresh_token(
         &self,
         refresh_token: &RefreshToken,
     ) -> NythosResult<Option<SessionRecord>>;
-    fn rotate_refresh_token(&self, rotation: RefreshTokenRotation) -> NythosResult<()>;
-    fn revoke_session(&self, session_id: SessionId) -> NythosResult<()>;
-    fn revoke_all_for_user(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<()>;
+    async fn rotate_refresh_token(&self, rotation: RefreshTokenRotation) -> NythosResult<()>;
+    async fn revoke_session(&self, session_id: SessionId) -> NythosResult<()>;
+    async fn revoke_all_for_user(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<()>;
 }
 ```
 
@@ -242,8 +242,8 @@ Implemented contract:
 
 ```rust
 trait PasswordHasher {
-    fn hash(&self, password: &Password) -> NythosResult<PasswordHash>;
-    fn verify(&self, password: &Password, hash: &PasswordHash) -> NythosResult<bool>;
+    async fn hash(&self, password: &Password) -> NythosResult<PasswordHash>;
+    async fn verify(&self, password: &Password, hash: &PasswordHash) -> NythosResult<bool>;
 }
 ```
 
@@ -273,8 +273,8 @@ Implemented contract:
 
 ```rust
 trait TokenSigner {
-    fn sign(&self, claims: &Claims) -> NythosResult<AccessToken>;
-    fn verify(&self, token: &AccessToken) -> NythosResult<Claims>;
+    async fn sign(&self, claims: &Claims) -> NythosResult<AccessToken>;
+    async fn verify(&self, token: &AccessToken) -> NythosResult<Claims>;
 }
 ```
 
@@ -303,13 +303,13 @@ Implemented contract:
 
 ```rust
 trait RevocationChecker {
-    fn is_revoked(&self, session_id: SessionId) -> NythosResult<bool>;
+    async fn is_revoked(&self, session_id: SessionId) -> NythosResult<bool>;
 }
 ```
 
 ## Notes On Port Shape
 
-- the traits are synchronous today and accept or return domain types plus small helper payloads
+- the traits are async and accept or return domain types plus small helper payloads
 - traits should accept and return domain types, not storage DTOs
 - helper structs stay small and domain-oriented because they model boundary intent, not infrastructure schemas
 - ports are contracts only, not adapters, mocks, or default implementations

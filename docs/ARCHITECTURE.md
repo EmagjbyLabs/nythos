@@ -15,7 +15,7 @@ It owns:
 - domain types and invariants
 - auth, session, and RBAC business rules
 - orchestration logic for core auth flows
-- trait contracts for required external capabilities
+- async trait contracts for required external capabilities
 
 It does not own:
 
@@ -136,7 +136,7 @@ Contains:
 
 ## `ports`
 
-Contains pure trait contracts only.
+Contains pure async trait contracts only.
 
 Contains:
 
@@ -156,7 +156,7 @@ No default adapters belong here.
 
 ## Role Of Ports
 
-Ports are contracts for capabilities the core needs but must not implement directly.
+Ports are async runtime-agnostic contracts for capabilities the core needs but must not implement directly.
 
 Examples:
 

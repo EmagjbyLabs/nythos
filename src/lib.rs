@@ -1,3 +1,4 @@
+#![allow(async_fn_in_trait)]
 //!
 //! Public core library for Nythos.
 //!
