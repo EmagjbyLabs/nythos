@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use nythos_core::{Email, Tenant, TenantId, User, UserId, UserStatus};
+use nythos_core::{Email, Tenant, TenantAuthPolicy, TenantId, User, UserId, UserStatus};
 
 #[test]
 fn user_uses_typed_identity_and_domain_email() {
@@ -37,4 +37,40 @@ fn tenant_uses_typed_identity_and_validated_slug() {
     let tenant = Tenant::new(TenantId::generate(), "northstar").unwrap();
 
     assert_eq!(tenant.slug(), "northstar");
+}
+
+#[test]
+fn tenant_auth_policy_default_disables_optional_auth_features() {
+    let policy = TenantAuthPolicy::default();
+
+    assert!(!policy.username_registration_enabled());
+    assert!(!policy.display_name_registration_enabled());
+    assert!(!policy.username_login_enabled());
+}
+
+#[test]
+fn tenant_auth_policy_constructor_sets_flags() {
+    let policy = TenantAuthPolicy::new(true, false, true);
+
+    assert!(policy.username_registration_enabled());
+    assert!(!policy.display_name_registration_enabled());
+    assert!(policy.username_login_enabled());
+}
+
+#[test]
+fn tenant_with_auth_policy_accepts_explicit_policy() {
+    let policy = TenantAuthPolicy::new(true, true, false);
+    let tenant = Tenant::with_auth_policy(TenantId::generate(), "northstar", None, policy).unwrap();
+
+    assert_eq!(tenant.auth_policy(), &policy);
+}
+
+#[test]
+fn tenant_auth_policy_can_be_updated() {
+    let mut tenant = Tenant::new(TenantId::generate(), "northstar").unwrap();
+    let policy = TenantAuthPolicy::new(true, false, true);
+
+    tenant.set_auth_policy(policy);
+
+    assert_eq!(tenant.auth_policy(), &policy);
 }

@@ -36,7 +36,7 @@ fn username_round_trips_through_display_and_parse() {
     assert_eq!(username.as_str(), "gencho_xd");
     assert_eq!(username.to_string(), "gencho_xd");
 
-    let parsed = Username::parse(username.to_string()).unwrap();
+    let parsed = Username::parse(&username).unwrap();
     assert_eq!(parsed, username);
 }
 
@@ -61,7 +61,7 @@ fn display_name_round_trips_through_display_and_parse() {
     assert_eq!(display_name.as_str(), "Evgeni Dochev");
     assert_eq!(display_name.to_string(), "Evgeni Dochev");
 
-    let parsed = DisplayName::parse(display_name.to_string()).unwrap();
+    let parsed = DisplayName::parse(&display_name).unwrap();
     assert_eq!(parsed, display_name);
 }
 

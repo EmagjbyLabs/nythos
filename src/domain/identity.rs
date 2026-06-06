@@ -98,6 +98,44 @@ impl User {
     }
 }
 
+/// Typed auth-relevant tenant policy.
+///
+/// These flags control whether optional profile fields may be collected and
+/// whether username login is enabled. Auth behavior must consult this typed
+/// policy instead of stringly tenant settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct TenantAuthPolicy {
+    username_registration_enabled: bool,
+    display_name_registration_enabled: bool,
+    username_login_enabled: bool,
+}
+
+impl TenantAuthPolicy {
+    pub const fn new(
+        username_registration_enabled: bool,
+        display_name_registration_enabled: bool,
+        username_login_enabled: bool,
+    ) -> Self {
+        Self {
+            username_registration_enabled,
+            display_name_registration_enabled,
+            username_login_enabled,
+        }
+    }
+
+    pub const fn username_registration_enabled(&self) -> bool {
+        self.username_registration_enabled
+    }
+
+    pub const fn display_name_registration_enabled(&self) -> bool {
+        self.display_name_registration_enabled
+    }
+
+    pub const fn username_login_enabled(&self) -> bool {
+        self.username_login_enabled
+    }
+}
+
 /// Optional tenant-level settings kept as plain domain metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct TenantSettings(BTreeMap<String, String>);
@@ -122,6 +160,7 @@ pub struct Tenant {
     id: TenantId,
     slug: String,
     settings: Option<TenantSettings>,
+    auth_policy: TenantAuthPolicy,
 }
 
 impl Tenant {
@@ -136,9 +175,23 @@ impl Tenant {
         slug: impl AsRef<str>,
         settings: Option<TenantSettings>,
     ) -> NythosResult<Self> {
+        Self::with_auth_policy(id, slug, settings, TenantAuthPolicy::default())
+    }
+
+    pub fn with_auth_policy(
+        id: TenantId,
+        slug: impl AsRef<str>,
+        settings: Option<TenantSettings>,
+        auth_policy: TenantAuthPolicy,
+    ) -> NythosResult<Self> {
         let slug = Self::validate_slug(slug.as_ref())?;
 
-        Ok(Self { id, slug, settings })
+        Ok(Self {
+            id,
+            slug,
+            settings,
+            auth_policy,
+        })
     }
 
     pub const fn id(&self) -> TenantId {
@@ -153,8 +206,16 @@ impl Tenant {
         self.settings.as_ref()
     }
 
+    pub const fn auth_policy(&self) -> &TenantAuthPolicy {
+        &self.auth_policy
+    }
+
     pub fn set_settings(&mut self, settings: Option<TenantSettings>) {
         self.settings = settings;
+    }
+
+    pub fn set_auth_policy(&mut self, auth_policy: TenantAuthPolicy) {
+        self.auth_policy = auth_policy;
     }
 
     fn validate_slug(input: &str) -> NythosResult<String> {
@@ -194,8 +255,9 @@ impl Tenant {
 
 #[cfg(test)]
 mod tests {
-    use super::{Tenant, TenantSettings, User, UserStatus};
+    use super::{Tenant, TenantAuthPolicy, TenantSettings, User, UserStatus};
     use crate::{AuthError, Email, TenantId, UserId};
+    use core::option::Option::None;
     use std::{
         collections::BTreeMap,
         time::{Duration, SystemTime},
@@ -243,7 +305,32 @@ mod tests {
     }
 
     #[test]
-    fn tenant_accepts_valid_slug_and_optional_settings() {
+    fn tenant_auth_policy_default_disables_optional_profile_and_username_login() {
+        let policy = TenantAuthPolicy::default();
+
+        assert!(!policy.username_registration_enabled());
+        assert!(!policy.display_name_registration_enabled());
+        assert!(!policy.username_login_enabled());
+    }
+
+    #[test]
+    fn tenant_auth_policy_new_sets_all_flags() {
+        let policy = TenantAuthPolicy::new(true, true, true);
+
+        assert!(policy.username_registration_enabled());
+        assert!(policy.display_name_registration_enabled());
+        assert!(policy.username_login_enabled());
+    }
+
+    #[test]
+    fn tenant_new_uses_default_auth_policy() {
+        let tenant = Tenant::new(TenantId::generate(), "northstar").unwrap();
+
+        assert_eq!(tenant.auth_policy(), &TenantAuthPolicy::default());
+    }
+
+    #[test]
+    fn tenant_with_settings_uses_default_auth_policy() {
         let mut settings = BTreeMap::new();
         settings.insert("locale".to_owned(), "en".to_owned());
 
@@ -256,6 +343,48 @@ mod tests {
 
         assert_eq!(tenant.slug(), "acme-logistics");
         assert_eq!(tenant.settings().unwrap().as_map(), &settings);
+        assert_eq!(tenant.auth_policy(), &TenantAuthPolicy::default());
+    }
+
+    #[test]
+    fn tenant_with_auth_policy_stores_explicit_policy() {
+        let policy = TenantAuthPolicy::new(true, false, true);
+        let tenant =
+            Tenant::with_auth_policy(TenantId::generate(), "northstar", None, policy).unwrap();
+
+        assert_eq!(tenant.auth_policy(), &policy);
+        assert!(tenant.auth_policy().username_registration_enabled());
+        assert!(!tenant.auth_policy().display_name_registration_enabled());
+        assert!(tenant.auth_policy().username_login_enabled());
+    }
+
+    #[test]
+    fn tenant_set_auth_policy_updates_policy() {
+        let mut tenant = Tenant::new(TenantId::generate(), "northstar").unwrap();
+
+        let new_policy = TenantAuthPolicy::new(true, true, false);
+        tenant.set_auth_policy(new_policy);
+
+        assert_eq!(tenant.auth_policy(), &new_policy);
+    }
+
+    #[test]
+    fn tenant_settings_remain_non_auth_metadata() {
+        let mut settings = BTreeMap::new();
+        settings.insert("locale".to_owned(), "en".to_owned());
+
+        let tenant = Tenant::with_settings(
+            TenantId::generate(),
+            "acme-logistics",
+            Some(TenantSettings::new(settings.clone())),
+        )
+        .unwrap();
+
+        assert!(!tenant.auth_policy().username_login_enabled());
+        assert_eq!(
+            tenant.settings().unwrap().as_map().get("locale"),
+            Some(&"en".to_owned())
+        );
     }
 
     #[test]
