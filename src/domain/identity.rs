@@ -3,7 +3,7 @@ use std::time::SystemTime;
 
 use crate::{AuthError, NythosResult};
 
-use super::{Email, TenantId, UserId};
+use super::{DisplayName, Email, TenantId, UserId, Username};
 
 /// Domain status used by auth flows and account checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -35,6 +35,8 @@ impl UserStatus {
 pub struct User {
     id: UserId,
     email: Email,
+    username: Option<Username>,
+    display_name: Option<DisplayName>,
     status: UserStatus,
     created_at: SystemTime,
 }
@@ -45,6 +47,8 @@ impl User {
         Self {
             id,
             email,
+            username: None,
+            display_name: None,
             status: UserStatus::Active,
             created_at,
         }
@@ -60,6 +64,27 @@ impl User {
         Self {
             id,
             email,
+            username: None,
+            display_name: None,
+            status,
+            created_at,
+        }
+    }
+
+    /// Creates a user with explicit optional profile fields and status.
+    pub fn with_profile(
+        id: UserId,
+        email: Email,
+        username: Option<Username>,
+        display_name: Option<DisplayName>,
+        status: UserStatus,
+        created_at: SystemTime,
+    ) -> Self {
+        Self {
+            id,
+            email,
+            username,
+            display_name,
             status,
             created_at,
         }
@@ -71,6 +96,14 @@ impl User {
 
     pub const fn email(&self) -> &Email {
         &self.email
+    }
+
+    pub fn username(&self) -> Option<&Username> {
+        self.username.as_ref()
+    }
+
+    pub fn display_name(&self) -> Option<&DisplayName> {
+        self.display_name.as_ref()
     }
 
     pub const fn status(&self) -> UserStatus {
@@ -256,7 +289,7 @@ impl Tenant {
 #[cfg(test)]
 mod tests {
     use super::{Tenant, TenantAuthPolicy, TenantSettings, User, UserStatus};
-    use crate::{AuthError, Email, TenantId, UserId};
+    use crate::{AuthError, DisplayName, Email, TenantId, UserId, Username};
     use core::option::Option::None;
     use std::{
         collections::BTreeMap,
@@ -409,5 +442,50 @@ mod tests {
             Tenant::new(TenantId::generate(), "acme logistics"),
             Err(AuthError::ValidationError(_))
         ));
+    }
+
+    #[test]
+    fn user_new_has_no_profile_fields() {
+        let user = User::new(
+            UserId::generate(),
+            Email::parse("user@example.com").unwrap(),
+            SystemTime::UNIX_EPOCH,
+        );
+
+        assert!(user.username().is_none());
+        assert!(user.display_name().is_none());
+    }
+
+    #[test]
+    fn user_with_status_has_no_profile_fields() {
+        let user = User::with_status(
+            UserId::generate(),
+            Email::parse("user@example.com").unwrap(),
+            UserStatus::Locked,
+            SystemTime::UNIX_EPOCH,
+        );
+
+        assert_eq!(user.status(), UserStatus::Locked);
+        assert!(user.username().is_none());
+        assert!(user.display_name().is_none());
+    }
+
+    #[test]
+    fn user_with_profile_stores_optional_profile_fields() {
+        let username = Username::parse("Gencho_XD").unwrap();
+        let display_name = DisplayName::parse("Gencho XD").unwrap();
+
+        let user = User::with_profile(
+            UserId::generate(),
+            Email::parse("user@example.com").unwrap(),
+            Some(username.clone()),
+            Some(display_name.clone()),
+            UserStatus::Active,
+            SystemTime::UNIX_EPOCH,
+        );
+
+        assert_eq!(user.username(), Some(&username));
+        assert_eq!(user.display_name(), Some(&display_name));
+        assert_eq!(user.status(), UserStatus::Active);
     }
 }

@@ -1,4 +1,6 @@
-use crate::{Email, NythosResult, PasswordHash, TenantId, User, UserId, UserStatus};
+use crate::{
+    DisplayName, Email, NythosResult, PasswordHash, TenantId, User, UserId, UserStatus, Username,
+};
 
 /// Domain-facing input used when creating a new user inside a tenant.
 ///
@@ -7,19 +9,49 @@ use crate::{Email, NythosResult, PasswordHash, TenantId, User, UserId, UserStatu
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewUser {
     email: Email,
+    username: Option<Username>,
+    display_name: Option<DisplayName>,
 }
 
 impl NewUser {
     pub fn new(email: Email) -> Self {
-        Self { email }
+        Self {
+            email,
+            username: None,
+            display_name: None,
+        }
+    }
+
+    pub fn with_profile(
+        email: Email,
+        username: Option<Username>,
+        display_name: Option<DisplayName>,
+    ) -> Self {
+        Self {
+            email,
+            username,
+            display_name,
+        }
     }
 
     pub fn email(&self) -> &Email {
         &self.email
     }
 
+    pub fn username(&self) -> Option<&Username> {
+        self.username.as_ref()
+    }
+
+    pub fn display_name(&self) -> Option<&DisplayName> {
+        self.display_name.as_ref()
+    }
+
     pub fn into_email(self) -> Email {
         self.email
+    }
+
+    pub fn into_parts(self) -> (Email, Option<Username>, Option<DisplayName>) {
+        (self.email, self.username, self.display_name)
     }
 }
 

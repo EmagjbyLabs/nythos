@@ -1,7 +1,9 @@
 mod support;
 
 use futures::executor::block_on;
-use nythos_core::{NewUser, PasswordHash, TenantId, UserCredentials, UserRepository};
+use nythos_core::{
+    DisplayName, NewUser, PasswordHash, TenantId, UserCredentials, UserRepository, Username,
+};
 use support::{InMemoryUserRepository, fixtures};
 
 #[test]
@@ -10,6 +12,44 @@ fn new_user_wraps_domain_email() {
     let new_user = NewUser::new(email.clone());
 
     assert_eq!(new_user.email(), &email);
+    assert!(new_user.username().is_none());
+    assert!(new_user.display_name().is_none());
+}
+
+#[test]
+fn new_user_with_profile_stores_optional_profile_fields() {
+    let email = fixtures::canonical_email();
+    let username = Username::parse("Gencho_XD").unwrap();
+    let display_name = DisplayName::parse("Gencho XD").unwrap();
+
+    let new_user = NewUser::with_profile(
+        email.clone(),
+        Some(username.clone()),
+        Some(display_name.clone()),
+    );
+
+    assert_eq!(new_user.email(), &email);
+    assert_eq!(new_user.username(), Some(&username));
+    assert_eq!(new_user.display_name(), Some(&display_name));
+}
+
+#[test]
+fn new_user_into_parts_returns_creation_payload() {
+    let email = fixtures::canonical_email();
+    let username = Username::parse("Gencho_XD").unwrap();
+    let display_name = DisplayName::parse("Gencho XD").unwrap();
+
+    let new_user = NewUser::with_profile(
+        email.clone(),
+        Some(username.clone()),
+        Some(display_name.clone()),
+    );
+
+    let (actual_email, actual_username, actual_display_name) = new_user.into_parts();
+
+    assert_eq!(actual_email, email);
+    assert_eq!(actual_username, Some(username));
+    assert_eq!(actual_display_name, Some(display_name));
 }
 
 #[test]
@@ -44,6 +84,34 @@ fn contract_is_usable_for_login_and_registration_style_flows() {
                 .email(),
             &email
         );
+    });
+}
+
+#[test]
+fn contract_preserves_optional_profile_fields_during_creation() {
+    block_on(async {
+        let repo = InMemoryUserRepository::new();
+        let tenant_id = TenantId::generate();
+        let email = fixtures::canonical_email();
+        let username = Username::parse("Gencho_XD").unwrap();
+        let display_name = DisplayName::parse("Gencho XD").unwrap();
+
+        let created = repo
+            .create(
+                tenant_id,
+                NewUser::with_profile(
+                    email.clone(),
+                    Some(username.clone()),
+                    Some(display_name.clone()),
+                ),
+                PasswordHash::new("hashed-password").unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(created.email(), &email);
+        assert_eq!(created.username(), Some(&username));
+        assert_eq!(created.display_name(), Some(&display_name));
     });
 }
 

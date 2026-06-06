@@ -83,9 +83,13 @@ impl UserRepository for InMemoryUserRepository {
             ));
         }
 
-        let user = User::new(
+        let (email, username, display_name) = new_user.into_parts();
+        let user = User::with_profile(
             UserId::generate(),
-            new_user.into_email(),
+            email,
+            username,
+            display_name,
+            UserStatus::Active,
             canonical_issued_at(),
         );
 
