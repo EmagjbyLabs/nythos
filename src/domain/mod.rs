@@ -9,4 +9,4 @@ pub mod value_objects;
 
 pub use identity::{Tenant, TenantSettings, User, UserStatus};
 pub use ids::{RoleId, SessionId, TenantId, UserId};
-pub use value_objects::{Email, Password};
+pub use value_objects::{DisplayName, Email, LoginIdentifier, Password, Username};
