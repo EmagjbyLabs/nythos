@@ -5,9 +5,11 @@
 pub mod role;
 pub mod security;
 pub mod session;
+pub mod tenant_policy;
 pub mod user;
 
 pub use role::{RoleAssignmentInput, RoleRepository};
 pub use security::{PasswordHasher, RevocationChecker, TokenSigner};
 pub use session::{RefreshTokenRotation, SessionRecord, SessionStore};
+pub use tenant_policy::TenantPolicyPort;
 pub use user::{NewUser, UserCredentials, UserRepository};
