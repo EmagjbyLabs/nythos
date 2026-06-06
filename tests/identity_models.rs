@@ -1,6 +1,10 @@
+use std::collections::BTreeMap;
 use std::time::SystemTime;
 
-use nythos_core::{Email, Tenant, TenantAuthPolicy, TenantId, User, UserId, UserStatus};
+use nythos_core::{
+    DisplayName, Email, Tenant, TenantAuthPolicy, TenantId, TenantSettings, User, UserId,
+    UserStatus, Username,
+};
 
 #[test]
 fn user_uses_typed_identity_and_domain_email() {
@@ -10,6 +14,51 @@ fn user_uses_typed_identity_and_domain_email() {
 
     assert_eq!(user.id(), id);
     assert_eq!(user.email(), &email);
+    assert_eq!(user.status(), UserStatus::Active);
+}
+
+#[test]
+fn user_new_has_no_profile_fields() {
+    let user = User::new(
+        UserId::generate(),
+        Email::parse("person@example.com").unwrap(),
+        SystemTime::UNIX_EPOCH,
+    );
+
+    assert!(user.username().is_none());
+    assert!(user.display_name().is_none());
+}
+
+#[test]
+fn user_with_status_has_no_profile_fields() {
+    let user = User::with_status(
+        UserId::generate(),
+        Email::parse("person@example.com").unwrap(),
+        UserStatus::Locked,
+        SystemTime::UNIX_EPOCH,
+    );
+
+    assert_eq!(user.status(), UserStatus::Locked);
+    assert!(user.username().is_none());
+    assert!(user.display_name().is_none());
+}
+
+#[test]
+fn user_with_profile_stores_profile_fields() {
+    let username = Username::parse("Gencho_XD").unwrap();
+    let display_name = DisplayName::parse("Gencho XD").unwrap();
+
+    let user = User::with_profile(
+        UserId::generate(),
+        Email::parse("person@example.com").unwrap(),
+        Some(username.clone()),
+        Some(display_name.clone()),
+        UserStatus::Active,
+        SystemTime::UNIX_EPOCH,
+    );
+
+    assert_eq!(user.username(), Some(&username));
+    assert_eq!(user.display_name(), Some(&display_name));
     assert_eq!(user.status(), UserStatus::Active);
 }
 
@@ -55,6 +104,26 @@ fn tenant_auth_policy_constructor_sets_flags() {
     assert!(policy.username_registration_enabled());
     assert!(!policy.display_name_registration_enabled());
     assert!(policy.username_login_enabled());
+}
+
+#[test]
+fn tenant_constructors_preserve_default_auth_policy() {
+    let tenant = Tenant::new(TenantId::generate(), "northstar").unwrap();
+
+    assert_eq!(tenant.auth_policy(), &TenantAuthPolicy::default());
+
+    let settings = BTreeMap::from([("locale".to_owned(), "bg".to_owned())]);
+    let tenant_with_settings = Tenant::with_settings(
+        TenantId::generate(),
+        "southstar",
+        Some(TenantSettings::new(settings)),
+    )
+    .unwrap();
+
+    assert_eq!(
+        tenant_with_settings.auth_policy(),
+        &TenantAuthPolicy::default()
+    );
 }
 
 #[test]
