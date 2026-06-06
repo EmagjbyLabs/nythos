@@ -83,6 +83,242 @@ impl FromStr for Email {
     }
 }
 
+/// Stable tenant-scoped username value object.
+///
+/// Usernames are normalized to lowercase ASCII and are intended for lookup.
+/// They are distinct from display names and must never contain email-like input.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct Username(String);
+
+impl Username {
+    const MIN_LEN: usize = 3;
+    const MAX_LEN: usize = 32;
+
+    /// Parses and validates a username into its normalized lookup form.
+    pub fn parse(input: impl AsRef<str>) -> NythosResult<Self> {
+        let raw = input.as_ref().trim();
+
+        if raw.is_empty() {
+            return Err(AuthError::ValidationError(
+                "username cannot be empty".to_owned(),
+            ));
+        }
+
+        if raw.contains('@') {
+            return Err(AuthError::ValidationError(
+                "username cannot contain '@'".to_owned(),
+            ));
+        }
+
+        if raw.chars().any(char::is_whitespace) {
+            return Err(AuthError::ValidationError(
+                "username cannot contain whitespace".to_owned(),
+            ));
+        }
+
+        let normalized = raw.to_ascii_lowercase();
+
+        if normalized.len() < Self::MIN_LEN {
+            return Err(AuthError::ValidationError(format!(
+                "username must be at least {} characters",
+                Self::MIN_LEN
+            )));
+        }
+
+        if normalized.len() > Self::MAX_LEN {
+            return Err(AuthError::ValidationError(format!(
+                "username must be at most {} characters",
+                Self::MAX_LEN
+            )));
+        }
+
+        if normalized.starts_with(['_', '-']) || normalized.ends_with(['_', '-']) {
+            return Err(AuthError::ValidationError(
+                "username cannot start or end with '_' or '-'".to_owned(),
+            ));
+        }
+
+        if !normalized
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+        {
+            return Err(AuthError::ValidationError(
+                "username must contain only lowercase ASCII letters, digits, '_' or '-'".to_owned(),
+            ));
+        }
+
+        Ok(Self(normalized))
+    }
+
+    /// Returns the normalized username string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Consumes the username and returns the normalized string.
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for Username {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for Username {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl FromStr for Username {
+    type Err = AuthError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+/// Human-readable display name value object.
+///
+/// Display names are profile metadata only. They are not lookup identifiers and
+/// must never be used for authentication.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DisplayName(String);
+
+impl DisplayName {
+    const MAX_LEN: usize = 80;
+
+    /// Parses and validates a display name while preserving user-facing casing.
+    pub fn parse(input: impl AsRef<str>) -> NythosResult<Self> {
+        let value = input.as_ref().trim();
+
+        if value.is_empty() {
+            return Err(AuthError::ValidationError(
+                "display name cannot be empty".to_owned(),
+            ));
+        }
+
+        if value.chars().count() > Self::MAX_LEN {
+            return Err(AuthError::ValidationError(format!(
+                "display name must be at most {} characters",
+                Self::MAX_LEN
+            )));
+        }
+
+        if value.chars().any(|c| c == '\n' || c == '\r') {
+            return Err(AuthError::ValidationError(
+                "display name cannot contain newlines".to_owned(),
+            ));
+        }
+
+        if value.chars().any(char::is_control) {
+            return Err(AuthError::ValidationError(
+                "display name cannot contain control characters".to_owned(),
+            ));
+        }
+
+        Ok(Self(value.to_owned()))
+    }
+
+    /// Returns the validated display name string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Consumes the display name and returns the owned string.
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for DisplayName {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for DisplayName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl FromStr for DisplayName {
+    type Err = AuthError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+/// Typed login identifier used to classify login input as email or username.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum LoginIdentifier {
+    Email(Email),
+    Username(Username),
+}
+
+impl LoginIdentifier {
+    /// Parses a raw login identifier.
+    ///
+    /// Email parsing is attempted first. If that fails, username parsing is
+    /// attempted. This keeps classification deterministic.
+    pub fn parse(input: impl AsRef<str>) -> NythosResult<Self> {
+        let raw = input.as_ref();
+
+        if let Ok(email) = Email::parse(raw) {
+            return Ok(Self::Email(email));
+        }
+
+        Username::parse(raw).map(Self::Username)
+    }
+
+    pub const fn is_email(&self) -> bool {
+        matches!(self, Self::Email(_))
+    }
+
+    pub const fn is_username(&self) -> bool {
+        matches!(self, Self::Username(_))
+    }
+
+    pub const fn as_email(&self) -> Option<&Email> {
+        match self {
+            Self::Email(email) => Some(email),
+            Self::Username(_) => None,
+        }
+    }
+
+    pub const fn as_username(&self) -> Option<&Username> {
+        match self {
+            Self::Email(_) => None,
+            Self::Username(username) => Some(username),
+        }
+    }
+}
+
+impl From<Email> for LoginIdentifier {
+    fn from(value: Email) -> Self {
+        Self::Email(value)
+    }
+}
+
+impl From<Username> for LoginIdentifier {
+    fn from(value: Username) -> Self {
+        Self::Username(value)
+    }
+}
+
+impl FromStr for LoginIdentifier {
+    type Err = AuthError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
 /// Raw validated password input.
 ///
 /// This is intentionally distinct from a stored password hash. It represents
@@ -146,7 +382,7 @@ impl AsRef<str> for Password {
 
 #[cfg(test)]
 mod tests {
-    use super::{Email, Password};
+    use super::{DisplayName, Email, LoginIdentifier, Password, Username};
     use crate::AuthError;
 
     #[test]
@@ -184,6 +420,126 @@ mod tests {
             Email::parse("a @example.com"),
             Err(AuthError::ValidationError(_))
         ));
+    }
+
+    #[test]
+    fn username_accepts_simple_values_and_normalizes() {
+        let username = Username::parse("  Alice_123  ").unwrap();
+
+        assert_eq!(username.as_str(), "alice_123");
+        assert_eq!(username.to_string(), "alice_123");
+    }
+
+    #[test]
+    fn username_accepts_digits_underscore_and_hyphen() {
+        let username = Username::parse("dev-ops_123").unwrap();
+
+        assert_eq!(username.as_str(), "dev-ops_123");
+    }
+
+    #[test]
+    fn username_rejects_invalid_shapes() {
+        assert!(matches!(
+            Username::parse(""),
+            Err(AuthError::ValidationError(_))
+        ));
+        assert!(matches!(
+            Username::parse("ab"),
+            Err(AuthError::ValidationError(_))
+        ));
+        assert!(matches!(
+            Username::parse("a".repeat(33)),
+            Err(AuthError::ValidationError(_))
+        ));
+        assert!(matches!(
+            Username::parse("-alice"),
+            Err(AuthError::ValidationError(_))
+        ));
+        assert!(matches!(
+            Username::parse("alice_"),
+            Err(AuthError::ValidationError(_))
+        ));
+        assert!(matches!(
+            Username::parse("ali ce"),
+            Err(AuthError::ValidationError(_))
+        ));
+        assert!(matches!(
+            Username::parse("alice@example.com"),
+            Err(AuthError::ValidationError(_))
+        ));
+        assert!(matches!(
+            Username::parse("álîce"),
+            Err(AuthError::ValidationError(_))
+        ));
+    }
+
+    #[test]
+    fn display_name_accepts_unicode_and_preserves_casing() {
+        let display_name = DisplayName::parse("  Ada Lovelace 张伟  ").unwrap();
+
+        assert_eq!(display_name.as_str(), "Ada Lovelace 张伟");
+        assert_eq!(display_name.to_string(), "Ada Lovelace 张伟");
+    }
+
+    #[test]
+    fn display_name_rejects_invalid_shapes() {
+        assert!(matches!(
+            DisplayName::parse("   "),
+            Err(AuthError::ValidationError(_))
+        ));
+        assert!(matches!(
+            DisplayName::parse("a".repeat(81)),
+            Err(AuthError::ValidationError(_))
+        ));
+        assert!(matches!(
+            DisplayName::parse("Ada\nLovelace"),
+            Err(AuthError::ValidationError(_))
+        ));
+        assert!(matches!(
+            DisplayName::parse("Ada\rLovelace"),
+            Err(AuthError::ValidationError(_))
+        ));
+        assert!(matches!(
+            DisplayName::parse("Ada\u{0001}Lovelace"),
+            Err(AuthError::ValidationError(_))
+        ));
+    }
+
+    #[test]
+    fn login_identifier_parses_email_first() {
+        let identifier = LoginIdentifier::parse("User@Example.com").unwrap();
+
+        assert!(identifier.is_email());
+        assert!(!identifier.is_username());
+        assert_eq!(identifier.as_email().unwrap().as_str(), "user@example.com");
+        assert!(identifier.as_username().is_none());
+    }
+
+    #[test]
+    fn login_identifier_parses_username_when_email_fails() {
+        let identifier = LoginIdentifier::parse("Alice_123").unwrap();
+
+        assert!(identifier.is_username());
+        assert!(!identifier.is_email());
+        assert_eq!(identifier.as_username().unwrap().as_str(), "alice_123");
+        assert!(identifier.as_email().is_none());
+    }
+
+    #[test]
+    fn login_identifier_rejects_invalid_input() {
+        assert!(matches!(
+            LoginIdentifier::parse("!!bad"),
+            Err(AuthError::ValidationError(_))
+        ));
+    }
+
+    #[test]
+    fn login_identifier_from_value_objects_keeps_variant() {
+        let email = Email::parse("person@example.com").unwrap();
+        let username = Username::parse("person").unwrap();
+
+        assert!(LoginIdentifier::from(email).is_email());
+        assert!(LoginIdentifier::from(username).is_username());
     }
 
     #[test]
