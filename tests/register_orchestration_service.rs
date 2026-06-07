@@ -1,9 +1,12 @@
 mod support;
 
 use futures::executor::block_on;
-use nythos_core::{AuthError, RegisterInput, RegisterService, SessionStore, TenantId};
+use nythos_core::{
+    AuthError, RegisterInput, RegisterService, SessionStore, TenantAuthPolicy, TenantId,
+};
 use support::{
-    FakePasswordHasher, FakeTokenSigner, InMemorySessionStore, InMemoryUserRepository, fixtures,
+    FakePasswordHasher, FakeTenantPolicyPort, FakeTokenSigner, InMemorySessionStore,
+    InMemoryUserRepository, fixtures,
 };
 
 #[test]
@@ -89,10 +92,11 @@ fn register_input_with_auto_sign_in_preserves_existing_behavior() {
 fn register_validates_email_and_password_through_core_value_objects() {
     block_on(async {
         let users = InMemoryUserRepository::new();
+        let policies = FakeTenantPolicyPort::default();
         let sessions = InMemorySessionStore::new();
         let hasher = FakePasswordHasher;
         let signer = FakeTokenSigner;
-        let service = RegisterService::new(&users, &sessions, &hasher, &signer);
+        let service = RegisterService::new(&users, &policies, &sessions, &hasher, &signer);
 
         let result = service
             .register(RegisterInput::new(
@@ -110,13 +114,264 @@ fn register_validates_email_and_password_through_core_value_objects() {
 }
 
 #[test]
-fn register_enforces_tenant_scoped_duplicate_email_checks() {
+fn register_without_profile_succeeds_with_default_policy() {
     block_on(async {
         let users = InMemoryUserRepository::new();
+        let policies = FakeTenantPolicyPort::default();
         let sessions = InMemorySessionStore::new();
         let hasher = FakePasswordHasher;
         let signer = FakeTokenSigner;
-        let service = RegisterService::new(&users, &sessions, &hasher, &signer);
+        let service = RegisterService::new(&users, &policies, &sessions, &hasher, &signer);
+
+        let result = service
+            .register(RegisterInput::new(
+                TenantId::generate(),
+                fixtures::canonical_email_string(),
+                fixtures::canonical_password_string(),
+                fixtures::canonical_issued_at(),
+                fixtures::canonical_access_token_ttl(),
+                fixtures::canonical_session_ttl(),
+            ))
+            .await
+            .unwrap();
+
+        assert!(result.user().username().is_none());
+        assert!(result.user().display_name().is_none());
+    });
+}
+
+#[test]
+fn register_with_username_when_enabled_succeeds() {
+    block_on(async {
+        let users = InMemoryUserRepository::new();
+        let policies = FakeTenantPolicyPort::default();
+        let sessions = InMemorySessionStore::new();
+        let hasher = FakePasswordHasher;
+        let signer = FakeTokenSigner;
+        let tenant_id = TenantId::generate();
+
+        policies.insert_policy(tenant_id, TenantAuthPolicy::new(true, false, false));
+
+        let service = RegisterService::new(&users, &policies, &sessions, &hasher, &signer);
+
+        let result = service
+            .register(
+                RegisterInput::new(
+                    tenant_id,
+                    fixtures::canonical_email_string(),
+                    fixtures::canonical_password_string(),
+                    fixtures::canonical_issued_at(),
+                    fixtures::canonical_access_token_ttl(),
+                    fixtures::canonical_session_ttl(),
+                )
+                .with_username("Gencho_XD"),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.user().username().unwrap().as_str(), "gencho_xd");
+        assert!(result.user().display_name().is_none());
+    });
+}
+
+#[test]
+fn register_with_display_name_when_enabled_succeeds() {
+    block_on(async {
+        let users = InMemoryUserRepository::new();
+        let policies = FakeTenantPolicyPort::default();
+        let sessions = InMemorySessionStore::new();
+        let hasher = FakePasswordHasher;
+        let signer = FakeTokenSigner;
+        let tenant_id = TenantId::generate();
+
+        policies.insert_policy(tenant_id, TenantAuthPolicy::new(false, true, false));
+
+        let service = RegisterService::new(&users, &policies, &sessions, &hasher, &signer);
+
+        let result = service
+            .register(
+                RegisterInput::new(
+                    tenant_id,
+                    fixtures::canonical_email_string(),
+                    fixtures::canonical_password_string(),
+                    fixtures::canonical_issued_at(),
+                    fixtures::canonical_access_token_ttl(),
+                    fixtures::canonical_session_ttl(),
+                )
+                .with_display_name("Gencho XD"),
+            )
+            .await
+            .unwrap();
+
+        assert!(result.user().username().is_none());
+        assert_eq!(result.user().display_name().unwrap().as_str(), "Gencho XD");
+    });
+}
+
+#[test]
+fn register_with_username_and_display_name_when_enabled_succeeds() {
+    block_on(async {
+        let users = InMemoryUserRepository::new();
+        let policies = FakeTenantPolicyPort::default();
+        let sessions = InMemorySessionStore::new();
+        let hasher = FakePasswordHasher;
+        let signer = FakeTokenSigner;
+        let tenant_id = TenantId::generate();
+
+        policies.insert_policy(tenant_id, TenantAuthPolicy::new(true, true, false));
+
+        let service = RegisterService::new(&users, &policies, &sessions, &hasher, &signer);
+
+        let result = service
+            .register(
+                RegisterInput::new(
+                    tenant_id,
+                    fixtures::canonical_email_string(),
+                    fixtures::canonical_password_string(),
+                    fixtures::canonical_issued_at(),
+                    fixtures::canonical_access_token_ttl(),
+                    fixtures::canonical_session_ttl(),
+                )
+                .with_username("Gencho_XD")
+                .with_display_name("Gencho XD"),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.user().username().unwrap().as_str(), "gencho_xd");
+        assert_eq!(result.user().display_name().unwrap().as_str(), "Gencho XD");
+    });
+}
+
+#[test]
+fn register_with_username_when_disabled_returns_validation_error() {
+    block_on(async {
+        let users = InMemoryUserRepository::new();
+        let policies = FakeTenantPolicyPort::default();
+        let sessions = InMemorySessionStore::new();
+        let hasher = FakePasswordHasher;
+        let signer = FakeTokenSigner;
+        let service = RegisterService::new(&users, &policies, &sessions, &hasher, &signer);
+
+        let result = service
+            .register(
+                RegisterInput::new(
+                    TenantId::generate(),
+                    fixtures::canonical_email_string(),
+                    fixtures::canonical_password_string(),
+                    fixtures::canonical_issued_at(),
+                    fixtures::canonical_access_token_ttl(),
+                    fixtures::canonical_session_ttl(),
+                )
+                .with_username("Gencho_XD"),
+            )
+            .await;
+
+        assert!(matches!(result, Err(AuthError::ValidationError(_))));
+    });
+}
+
+#[test]
+fn register_with_display_name_when_disabled_returns_validation_error() {
+    block_on(async {
+        let users = InMemoryUserRepository::new();
+        let policies = FakeTenantPolicyPort::default();
+        let sessions = InMemorySessionStore::new();
+        let hasher = FakePasswordHasher;
+        let signer = FakeTokenSigner;
+        let service = RegisterService::new(&users, &policies, &sessions, &hasher, &signer);
+
+        let result = service
+            .register(
+                RegisterInput::new(
+                    TenantId::generate(),
+                    fixtures::canonical_email_string(),
+                    fixtures::canonical_password_string(),
+                    fixtures::canonical_issued_at(),
+                    fixtures::canonical_access_token_ttl(),
+                    fixtures::canonical_session_ttl(),
+                )
+                .with_display_name("Gencho XD"),
+            )
+            .await;
+
+        assert!(matches!(result, Err(AuthError::ValidationError(_))));
+    });
+}
+
+#[test]
+fn register_with_invalid_username_returns_validation_error_when_username_policy_enabled() {
+    block_on(async {
+        let users = InMemoryUserRepository::new();
+        let policies = FakeTenantPolicyPort::default();
+        let sessions = InMemorySessionStore::new();
+        let hasher = FakePasswordHasher;
+        let signer = FakeTokenSigner;
+        let tenant_id = TenantId::generate();
+
+        policies.insert_policy(tenant_id, TenantAuthPolicy::new(true, false, false));
+
+        let service = RegisterService::new(&users, &policies, &sessions, &hasher, &signer);
+
+        let result = service
+            .register(
+                RegisterInput::new(
+                    tenant_id,
+                    fixtures::canonical_email_string(),
+                    fixtures::canonical_password_string(),
+                    fixtures::canonical_issued_at(),
+                    fixtures::canonical_access_token_ttl(),
+                    fixtures::canonical_session_ttl(),
+                )
+                .with_username("!!bad"),
+            )
+            .await;
+
+        assert!(matches!(result, Err(AuthError::ValidationError(_))));
+    });
+}
+
+#[test]
+fn register_with_invalid_display_name_returns_validation_error_when_display_name_policy_enabled() {
+    block_on(async {
+        let users = InMemoryUserRepository::new();
+        let policies = FakeTenantPolicyPort::default();
+        let sessions = InMemorySessionStore::new();
+        let hasher = FakePasswordHasher;
+        let signer = FakeTokenSigner;
+        let tenant_id = TenantId::generate();
+
+        policies.insert_policy(tenant_id, TenantAuthPolicy::new(false, true, false));
+
+        let service = RegisterService::new(&users, &policies, &sessions, &hasher, &signer);
+
+        let result = service
+            .register(
+                RegisterInput::new(
+                    tenant_id,
+                    fixtures::canonical_email_string(),
+                    fixtures::canonical_password_string(),
+                    fixtures::canonical_issued_at(),
+                    fixtures::canonical_access_token_ttl(),
+                    fixtures::canonical_session_ttl(),
+                )
+                .with_display_name("Gencho\nXD"),
+            )
+            .await;
+
+        assert!(matches!(result, Err(AuthError::ValidationError(_))));
+    });
+}
+
+#[test]
+fn register_enforces_tenant_scoped_duplicate_email_checks() {
+    block_on(async {
+        let users = InMemoryUserRepository::new();
+        let policies = FakeTenantPolicyPort::default();
+        let sessions = InMemorySessionStore::new();
+        let hasher = FakePasswordHasher;
+        let signer = FakeTokenSigner;
+        let service = RegisterService::new(&users, &policies, &sessions, &hasher, &signer);
         let tenant_id = TenantId::generate();
 
         service
@@ -147,13 +402,61 @@ fn register_enforces_tenant_scoped_duplicate_email_checks() {
 }
 
 #[test]
-fn register_returns_signed_auth_material_when_auto_sign_in_is_enabled() {
+fn register_duplicate_username_returns_validation_error() {
     block_on(async {
         let users = InMemoryUserRepository::new();
+        let policies = FakeTenantPolicyPort::default();
         let sessions = InMemorySessionStore::new();
         let hasher = FakePasswordHasher;
         let signer = FakeTokenSigner;
-        let service = RegisterService::new(&users, &sessions, &hasher, &signer);
+        let tenant_id = TenantId::generate();
+
+        policies.insert_policy(tenant_id, TenantAuthPolicy::new(true, false, false));
+
+        let service = RegisterService::new(&users, &policies, &sessions, &hasher, &signer);
+
+        service
+            .register(
+                RegisterInput::new(
+                    tenant_id,
+                    fixtures::canonical_email_string(),
+                    fixtures::canonical_password_string(),
+                    fixtures::canonical_issued_at(),
+                    fixtures::canonical_access_token_ttl(),
+                    fixtures::canonical_session_ttl(),
+                )
+                .with_username("Gencho_XD"),
+            )
+            .await
+            .unwrap();
+
+        let duplicate = service
+            .register(
+                RegisterInput::new(
+                    tenant_id,
+                    fixtures::alternate_email_string(),
+                    "another-secret-password".to_owned(),
+                    fixtures::canonical_issued_at(),
+                    fixtures::canonical_access_token_ttl(),
+                    fixtures::canonical_session_ttl(),
+                )
+                .with_username("Gencho_XD"),
+            )
+            .await;
+
+        assert!(matches!(duplicate, Err(AuthError::ValidationError(_))));
+    });
+}
+
+#[test]
+fn register_returns_signed_auth_material_when_auto_sign_in_is_enabled() {
+    block_on(async {
+        let users = InMemoryUserRepository::new();
+        let policies = FakeTenantPolicyPort::default();
+        let sessions = InMemorySessionStore::new();
+        let hasher = FakePasswordHasher;
+        let signer = FakeTokenSigner;
+        let service = RegisterService::new(&users, &policies, &sessions, &hasher, &signer);
         let tenant_id = TenantId::generate();
 
         let result = service
@@ -188,10 +491,11 @@ fn register_returns_signed_auth_material_when_auto_sign_in_is_enabled() {
 fn register_can_return_user_without_auth_material() {
     block_on(async {
         let users = InMemoryUserRepository::new();
+        let policies = FakeTenantPolicyPort::default();
         let sessions = InMemorySessionStore::new();
         let hasher = FakePasswordHasher;
         let signer = FakeTokenSigner;
-        let service = RegisterService::new(&users, &sessions, &hasher, &signer);
+        let service = RegisterService::new(&users, &policies, &sessions, &hasher, &signer);
 
         let result = service
             .register(
