@@ -2,12 +2,14 @@
 //!
 //! Implementations of these ports live outside the core crate.
 
+pub mod external_identity;
 pub mod role;
 pub mod security;
 pub mod session;
 pub mod tenant_policy;
 pub mod user;
 
+pub use external_identity::ExternalIdentityRepository;
 pub use role::{RoleAssignmentInput, RoleRepository};
 pub use security::{PasswordHasher, RevocationChecker, TokenSigner};
 pub use session::{RefreshTokenRotation, SessionRecord, SessionStore};

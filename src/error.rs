@@ -18,6 +18,7 @@ pub enum AuthError {
     SessionExpired,
     TenantNotFound,
     PermissionDenied,
+    OAuthIdentityAlreadyLinked,
     ValidationError(String),
     Internal(String),
 }
@@ -32,6 +33,7 @@ impl fmt::Display for AuthError {
             AuthError::SessionExpired => f.write_str("session expired"),
             AuthError::TenantNotFound => f.write_str("tenant not found"),
             AuthError::PermissionDenied => f.write_str("permission denied"),
+            AuthError::OAuthIdentityAlreadyLinked => f.write_str("OAuth identity already linked"),
             AuthError::ValidationError(msg) => write!(f, "validation error: {}", msg),
             AuthError::Internal(msg) => write!(f, "internal error: {}", msg),
         }
