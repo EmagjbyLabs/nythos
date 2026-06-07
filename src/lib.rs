@@ -29,8 +29,8 @@ pub use domain::{
 pub use error::{AuthError, NythosResult};
 pub use ports::{
     ExternalIdentityRepository, NewUser, PasswordHasher, RefreshTokenRotation, RevocationChecker,
-    RoleAssignmentInput, RoleRepository, SessionRecord, SessionStore, TenantPolicyPort,
-    TokenSigner, UserCredentials, UserRepository,
+    RoleAssignmentInput, RoleRepository, SessionRecord, SessionStore,
+    TenantOAuthProviderConfigPort, TenantPolicyPort, TokenSigner, UserCredentials, UserRepository,
 };
 pub use rbac::{Permission, Role, RoleAssignment, RoleRegistry};
 pub use session::{RefreshToken, Session};
