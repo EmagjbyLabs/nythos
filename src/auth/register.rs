@@ -12,6 +12,8 @@ pub struct RegisterInput {
     tenant_id: TenantId,
     email: String,
     password: String,
+    username: Option<String>,
+    display_name: Option<String>,
     issued_at: SystemTime,
     access_token_ttl: Duration,
     session_ttl: Duration,
@@ -31,6 +33,8 @@ impl RegisterInput {
             tenant_id,
             email,
             password,
+            username: None,
+            display_name: None,
             issued_at,
             access_token_ttl,
             session_ttl,
@@ -50,6 +54,14 @@ impl RegisterInput {
         &self.password
     }
 
+    pub fn username(&self) -> Option<&str> {
+        self.username.as_deref()
+    }
+
+    pub fn display_name(&self) -> Option<&str> {
+        self.display_name.as_deref()
+    }
+
     pub const fn issued_at(&self) -> SystemTime {
         self.issued_at
     }
@@ -64,6 +76,22 @@ impl RegisterInput {
 
     pub const fn auto_sign_in(&self) -> bool {
         self.auto_sign_in
+    }
+
+    pub fn with_profile(mut self, username: Option<String>, display_name: Option<String>) -> Self {
+        self.username = username;
+        self.display_name = display_name;
+        self
+    }
+
+    pub fn with_username(mut self, username: impl Into<String>) -> Self {
+        self.username = Some(username.into());
+        self
+    }
+
+    pub fn with_display_name(mut self, display_name: impl Into<String>) -> Self {
+        self.display_name = Some(display_name.into());
+        self
     }
 
     pub fn with_auto_sign_in(mut self, auto_sign_in: bool) -> Self {

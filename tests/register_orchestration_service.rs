@@ -7,6 +7,85 @@ use support::{
 };
 
 #[test]
+fn register_input_new_defaults_profile_fields_to_none() {
+    let input = RegisterInput::new(
+        TenantId::generate(),
+        fixtures::canonical_email_string(),
+        fixtures::canonical_password_string(),
+        fixtures::canonical_issued_at(),
+        fixtures::canonical_access_token_ttl(),
+        fixtures::canonical_session_ttl(),
+    );
+
+    assert!(input.username().is_none());
+    assert!(input.display_name().is_none());
+    assert!(input.auto_sign_in());
+}
+
+#[test]
+fn register_input_with_profile_sets_optional_profile_fields() {
+    let input = RegisterInput::new(
+        TenantId::generate(),
+        fixtures::canonical_email_string(),
+        fixtures::canonical_password_string(),
+        fixtures::canonical_issued_at(),
+        fixtures::canonical_access_token_ttl(),
+        fixtures::canonical_session_ttl(),
+    )
+    .with_profile(Some("gencho_xd".to_owned()), Some("Gencho XD".to_owned()));
+
+    assert_eq!(input.username(), Some("gencho_xd"));
+    assert_eq!(input.display_name(), Some("Gencho XD"));
+}
+
+#[test]
+fn register_input_with_username_sets_username_only() {
+    let input = RegisterInput::new(
+        TenantId::generate(),
+        fixtures::canonical_email_string(),
+        fixtures::canonical_password_string(),
+        fixtures::canonical_issued_at(),
+        fixtures::canonical_access_token_ttl(),
+        fixtures::canonical_session_ttl(),
+    )
+    .with_username("gencho_xd");
+
+    assert_eq!(input.username(), Some("gencho_xd"));
+    assert!(input.display_name().is_none());
+}
+
+#[test]
+fn register_input_with_display_name_sets_display_name_only() {
+    let input = RegisterInput::new(
+        TenantId::generate(),
+        fixtures::canonical_email_string(),
+        fixtures::canonical_password_string(),
+        fixtures::canonical_issued_at(),
+        fixtures::canonical_access_token_ttl(),
+        fixtures::canonical_session_ttl(),
+    )
+    .with_display_name("Gencho XD");
+
+    assert!(input.username().is_none());
+    assert_eq!(input.display_name(), Some("Gencho XD"));
+}
+
+#[test]
+fn register_input_with_auto_sign_in_preserves_existing_behavior() {
+    let input = RegisterInput::new(
+        TenantId::generate(),
+        fixtures::canonical_email_string(),
+        fixtures::canonical_password_string(),
+        fixtures::canonical_issued_at(),
+        fixtures::canonical_access_token_ttl(),
+        fixtures::canonical_session_ttl(),
+    )
+    .with_auto_sign_in(false);
+
+    assert!(!input.auto_sign_in());
+}
+
+#[test]
 fn register_validates_email_and_password_through_core_value_objects() {
     block_on(async {
         let users = InMemoryUserRepository::new();
