@@ -31,6 +31,14 @@ pub fn canonical_password_string() -> String {
     "super-secret-password".to_owned()
 }
 
+pub fn alternate_email() -> Email {
+    Email::parse(alternate_email_string()).unwrap()
+}
+
+pub fn alternate_email_string() -> String {
+    "other@example.com".to_owned()
+}
+
 pub fn operator_role(tenant_id: TenantId) -> Role {
     Role::new(
         RoleId::generate(),
