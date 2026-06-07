@@ -246,6 +246,106 @@ session is already known as revoked.
 - request-time revocation checks need session identity
 - `Claims` do not currently carry `SessionId`, so verified claims alone are not enough to call `RevocationChecker`; outer layers currently need another way to recover or track session identity
 
+## OAuth Resolve Login
+
+`OAuthLoginService::resolve_login` is async and resolves the domain outcome for
+an OAuth login attempt after gateway/provider adapters have verified the provider
+data.
+
+### Inputs
+
+- tenant ID
+- `VerifiedExternalProfile`
+- current time for last-seen updates
+
+### Ordered Steps
+
+1. Read the provider kind from the verified profile.
+2. Load tenant provider config through `TenantOAuthProviderConfigPort::load_provider_config`.
+3. If config is missing, return `OAuthLoginOutcome::ProviderDisabled`.
+4. If config is disabled, return `OAuthLoginOutcome::ProviderDisabled`.
+5. Look up an existing external identity by tenant, provider kind, and provider subject.
+6. If an identity exists, load the linked user by tenant and user ID.
+7. If the linked user cannot authenticate, return `AuthError::UserNotFoundOrInactive`.
+8. Touch the external identity last-seen timestamp.
+9. Return `OAuthLoginOutcome::ExistingIdentityLogin`.
+10. If no identity exists, read `VerifiedExternalProfile::verified_email()`.
+11. If a verified email exists and matches an active user, return `OAuthLoginOutcome::LinkRequired`.
+12. Otherwise return `OAuthLoginOutcome::RegistrationRequired` with the tenant provider registration policy.
+
+### Ports Used
+
+- `ExternalIdentityRepository`
+- `UserRepository`
+- `TenantOAuthProviderConfigPort`
+
+### Outputs
+
+- `OAuthLoginOutcome::ProviderDisabled`
+- `OAuthLoginOutcome::ExistingIdentityLogin`
+- `OAuthLoginOutcome::LinkRequired`
+- `OAuthLoginOutcome::RegistrationRequired`
+
+### Non-goals
+
+- no user creation
+- no identity linking
+- no session issuance
+- no OAuth token validation
+- no provider HTTP calls
+- no provider redirects or callback handling
+- no cookies or framework behavior
+
+### Security Notes
+
+- gateway verifies OAuth provider data before core receives `VerifiedExternalProfile`
+- core trusts `VerifiedExternalProfile` as already verified
+- core uses only `verified_email()` for account matching decisions
+- unverified email must not be used for auto-linking or account matching
+- user status is checked before existing-identity login and link-required decisions
+
+## OAuth Link Identity
+
+`OAuthLoginService::link_identity` is async and explicitly links a verified
+external profile to an existing active user after gateway obtains user consent.
+
+### Inputs
+
+- tenant ID
+- target user ID
+- `VerifiedExternalProfile`
+- current time for link and last-seen timestamps
+
+### Ordered Steps
+
+1. Load the target user by tenant and user ID.
+2. If the user cannot authenticate, return `AuthError::UserNotFoundOrInactive`.
+3. Look up an existing external identity by tenant, provider kind, and provider subject.
+4. If the identity is already linked to the same user, return `AuthError::OAuthIdentityAlreadyLinkedToSelf`.
+5. If the identity is linked to another user, return `AuthError::OAuthIdentityAlreadyLinked`.
+6. Create `ExternalIdentity` from the verified profile metadata.
+7. Persist the identity through `ExternalIdentityRepository::link`.
+8. Return the linked `ExternalIdentity`.
+
+### Ports Used
+
+- `ExternalIdentityRepository`
+- `UserRepository`
+
+### Non-goals
+
+- no session issuance
+- no user creation
+- no provider verification
+- no provider enablement re-check
+- no provider HTTP calls
+
+### Security Notes
+
+- callers should invoke this only after explicit user consent
+- duplicate identity linkage is rejected before persistence
+- storage adapters must enforce tenant/provider/subject uniqueness too
+
 ## Revoke All Sessions
 
 `RevokeAllSessionsService::revoke_all` is async and revokes all sessions for one user inside

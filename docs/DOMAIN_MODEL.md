@@ -147,6 +147,101 @@ Current notes:
 - `TenantSettings` is non-auth metadata only and must not control auth behavior
 - `TenantAuthPolicy` is the typed auth policy embedded in `Tenant`
 
+## OAuth Foundation
+
+The OAuth foundation in core is domain-level and decision-first. Gateway/provider
+adapters verify provider data before core receives it.
+
+Core owns:
+
+- OAuth provider/domain modeling
+- tenant/provider enablement decisions
+- verified-profile boundary modeling
+- external identity linking decisions
+- explicit login outcomes
+- user-status checks before OAuth login/linking
+- tenant-scoped repository contracts
+
+Core does not own:
+
+- OAuth redirects
+- OAuth state or CSRF
+- PKCE
+- authorization-code exchange
+- provider token exchange
+- provider ID-token validation
+- JWKS fetching
+- provider userinfo fetching
+- HTTP routes
+- cookies
+- client secrets or client IDs
+- provider SDKs
+- runtime/framework behavior
+- database schema or migrations
+
+## `OAuthProviderKind`
+
+Supported OAuth/OIDC provider kind known to the core domain.
+
+Current variants:
+
+- `Google`
+- `GitHub`
+- `Microsoft`
+
+Rules:
+
+- string representation is stable lowercase text
+- provider mechanics and HTTP metadata are outside this enum
+
+## `ExternalIdentity`
+
+Provider identity linked to a Nythos user inside one tenant.
+
+Natural key:
+
+- `(tenant_id, provider_kind, provider_subject)`
+
+Rules:
+
+- provider subject is the stable opaque provider user ID
+- provider subject is the OAuth login key, not provider email or display name
+- provider email and display name are link-time metadata
+- storage adapters must enforce tenant/provider/subject uniqueness
+- lookup and linking are tenant-scoped
+
+## `TenantOAuthProviderConfig`
+
+Tenant-scoped OAuth provider configuration used by core decisions.
+
+Current fields:
+
+- tenant ID
+- provider kind
+- enabled flag
+- registration allowed flag
+
+Rules:
+
+- secrets-free by design
+- contains only core-owned domain decisions
+- must not contain secrets, client IDs, URLs, redirect URIs, JWKS URLs, token endpoints, or provider HTTP metadata
+- separate from `TenantAuthPolicy` and `TenantPolicyPort`
+
+## `VerifiedExternalProfile`
+
+Normalized external profile already verified by gateway/provider adapters.
+
+Rules:
+
+- trust boundary between gateway/provider adapters and core
+- core does not validate OAuth tokens or provider signatures
+- core does not fetch JWKS documents or provider userinfo
+- `email()` may expose provider metadata whether or not it is verified
+- `verified_email()` is the only email accessor safe for account-linking decisions
+- `verified_email()` returns `Some(&Email)` only when `email_verified == true`
+- unverified email must not be used for auto-linking or account matching
+
 ## `TenantAuthPolicy`
 
 Typed auth-relevant tenant policy.

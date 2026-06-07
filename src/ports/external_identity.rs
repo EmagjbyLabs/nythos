@@ -1,3 +1,9 @@
+//! Tenant-scoped external identity repository contract.
+//!
+//! This port is used by the OAuth decision service after provider data has been
+//! verified outside core. Implementations live in adapters and own persistence
+//! details, but the contract requires tenant-scoped provider-subject uniqueness.
+
 use core::option::Option;
 use std::time::SystemTime;
 
