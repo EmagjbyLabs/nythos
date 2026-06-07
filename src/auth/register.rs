@@ -2,8 +2,9 @@ use std::time::{Duration, SystemTime};
 
 use super::issuance::issue_session_auth;
 use crate::{
-    AccessToken, AuthError, Claims, Email, NewUser, NythosResult, Password, PasswordHasher,
-    RefreshToken, Session, SessionStore, TenantId, TokenSigner, User, UserRepository,
+    AccessToken, AuthError, Claims, DisplayName, Email, NewUser, NythosResult, Password,
+    PasswordHasher, RefreshToken, Session, SessionStore, TenantAuthPolicy, TenantId,
+    TenantPolicyPort, TokenSigner, User, UserRepository, Username,
 };
 
 /// Input for the register orchestration flow.
@@ -179,28 +180,32 @@ impl RegisterResult {
 /// - hashes the password through `PasswordHasher`
 /// - persists the user through `UserRepository`
 /// - optionally creates a session and signed access token through `SessionStore` and `TokenSigner`
-pub struct RegisterService<'a, U, S, H, T> {
+pub struct RegisterService<'a, U, P, S, H, T> {
     user_repository: &'a U,
+    tenant_policy_port: &'a P,
     session_store: &'a S,
     password_hasher: &'a H,
     token_signer: &'a T,
 }
 
-impl<'a, U, S, H, T> RegisterService<'a, U, S, H, T>
+impl<'a, U, P, S, H, T> RegisterService<'a, U, P, S, H, T>
 where
     U: UserRepository,
+    P: TenantPolicyPort,
     S: SessionStore,
     H: PasswordHasher,
     T: TokenSigner,
 {
     pub fn new(
         user_repository: &'a U,
+        tenant_policy_port: &'a P,
         session_store: &'a S,
         password_hasher: &'a H,
         token_signer: &'a T,
     ) -> Self {
         Self {
             user_repository,
+            tenant_policy_port,
             session_store,
             password_hasher,
             token_signer,
@@ -210,14 +215,30 @@ where
     pub async fn register(&self, input: RegisterInput) -> NythosResult<RegisterResult> {
         let email = Email::parse(input.email())?;
         let password = Password::new(input.password())?;
+        let policy = self
+            .tenant_policy_port
+            .load_auth_policy(input.tenant_id())
+            .await?;
+
+        let username = self.parse_username(input.username(), &policy)?;
+        let display_name = self.parse_display_name(input.display_name(), &policy)?;
 
         self.ensure_email_available(input.tenant_id(), &email)
             .await?;
 
+        if let Some(username) = &username {
+            self.ensure_username_available(input.tenant_id(), username)
+                .await?;
+        }
+
         let password_hash = self.password_hasher.hash(&password).await?;
         let user = self
             .user_repository
-            .create(input.tenant_id(), NewUser::new(email), password_hash)
+            .create(
+                input.tenant_id(),
+                NewUser::with_profile(email, username, display_name),
+                password_hash,
+            )
             .await?;
 
         let auth = if input.auto_sign_in() {
@@ -229,6 +250,42 @@ where
         Ok(RegisterResult::new(user, auth))
     }
 
+    fn parse_username(
+        &self,
+        username: Option<&str>,
+        policy: &TenantAuthPolicy,
+    ) -> NythosResult<Option<Username>> {
+        let Some(username) = username else {
+            return Ok(None);
+        };
+
+        if !policy.username_registration_enabled() {
+            return Err(AuthError::ValidationError(
+                "username registration is disabled for tenant".to_owned(),
+            ));
+        }
+
+        Username::parse(username).map(Some)
+    }
+
+    fn parse_display_name(
+        &self,
+        display_name: Option<&str>,
+        policy: &TenantAuthPolicy,
+    ) -> NythosResult<Option<DisplayName>> {
+        let Some(display_name) = display_name else {
+            return Ok(None);
+        };
+
+        if !policy.display_name_registration_enabled() {
+            return Err(AuthError::ValidationError(
+                "display name registration is disabled for tenant".to_owned(),
+            ));
+        }
+
+        DisplayName::parse(display_name).map(Some)
+    }
+
     async fn ensure_email_available(&self, tenant_id: TenantId, email: &Email) -> NythosResult<()> {
         if self
             .user_repository
@@ -238,6 +295,25 @@ where
         {
             return Err(AuthError::ValidationError(
                 "user with email already exists in tenant".to_owned(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    async fn ensure_username_available(
+        &self,
+        tenant_id: TenantId,
+        username: &Username,
+    ) -> NythosResult<()> {
+        if self
+            .user_repository
+            .find_by_username(tenant_id, username)
+            .await?
+            .is_some()
+        {
+            return Err(AuthError::ValidationError(
+                "user with username already exists in tenant".to_owned(),
             ));
         }
 
