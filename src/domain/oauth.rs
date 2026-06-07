@@ -2,7 +2,8 @@
 //!
 //! This module contains the infrastructure-free OAauth domain surface used by
 //! `nythos-core`. Provider redirects, token exchange, JWKS validation, provider
-//! HTTP calls, and userinfo fetching remain outside core.
+//! HTTP calls, and userinfo fetching, client secrets, and callback handling remain
+//! outside core.
 
 use std::{fmt, str::FromStr, time::SystemTime};
 
@@ -117,7 +118,7 @@ impl ExternalIdentity {
         linked_at: SystemTime,
         last_seen_at: SystemTime,
     ) -> NythosResult<Self> {
-        let provider_subject = Self::validate_provider_subject(provider_subject.as_ref())?;
+        let provider_subject = validate_provider_subject(provider_subject.as_ref())?;
 
         Ok(Self {
             tenant_id,
@@ -167,23 +168,141 @@ impl ExternalIdentity {
     pub fn touch(&mut self, now: SystemTime) {
         self.last_seen_at = now;
     }
+}
 
-    fn validate_provider_subject(input: &str) -> NythosResult<String> {
-        let value = input.trim();
+/// Core's tenant-scoped OAuth provider configuration.
+///
+/// This type intentionally contains only domain decisions the core needs:
+/// whether the provider is enabled and whether registration through it is
+/// allowed. Secrets, client IDs, redirect URIs, provider endpoints, JWKS URLs,
+/// and HTTP metadata belong to gateway/infrastructure code.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TenantOAuthProviderConfig {
+    tenant_id: TenantId,
+    provider_kind: OAuthProviderKind,
+    enabled: bool,
+    registration_allowed: bool,
+}
 
-        if value.is_empty() {
-            return Err(AuthError::ValidationError(
-                "provider subject cannot be empty".to_owned(),
-            ));
+impl TenantOAuthProviderConfig {
+    pub const fn new(
+        tenant_id: TenantId,
+        provider_kind: OAuthProviderKind,
+        enabled: bool,
+        registration_allowed: bool,
+    ) -> Self {
+        Self {
+            tenant_id,
+            provider_kind,
+            enabled,
+            registration_allowed,
         }
-
-        Ok(value.to_owned())
     }
+
+    pub const fn tenant_id(&self) -> TenantId {
+        self.tenant_id
+    }
+
+    pub const fn provider_kind(&self) -> OAuthProviderKind {
+        self.provider_kind
+    }
+
+    pub const fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub const fn registration_allowed(&self) -> bool {
+        self.registration_allowed
+    }
+}
+
+/// A normalized external profile that has already been verified by gateway.
+///
+/// This is a trust boundary type. `nythos-core` does not validate OAuth tokens,
+/// call provider APIs, fetch JWKS documents, or verify provider signatures.
+/// Gateway/provider adapters must complete those checks before constructing
+/// this value.
+///
+/// Unverified email must not be used for account linking decisions. Use
+/// `verified_email()` when deciding whether an OAuth profile may match an
+/// existing user.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct VerifiedExternalProfile {
+    provider_kind: OAuthProviderKind,
+    provider_subject: String,
+    email: Option<Email>,
+    email_verified: bool,
+    display_name: Option<DisplayName>,
+}
+
+impl VerifiedExternalProfile {
+    pub fn new(
+        provider_kind: OAuthProviderKind,
+        provider_subject: impl AsRef<str>,
+        email: Option<Email>,
+        email_verified: bool,
+        display_name: Option<DisplayName>,
+    ) -> NythosResult<Self> {
+        let provider_subject = validate_provider_subject(provider_subject.as_ref())?;
+
+        Ok(Self {
+            provider_kind,
+            provider_subject,
+            email,
+            email_verified,
+            display_name,
+        })
+    }
+
+    pub const fn provider_kind(&self) -> OAuthProviderKind {
+        self.provider_kind
+    }
+
+    pub fn provider_subject(&self) -> &str {
+        &self.provider_subject
+    }
+
+    pub fn email(&self) -> Option<&Email> {
+        self.email.as_ref()
+    }
+
+    pub const fn email_verified(&self) -> bool {
+        self.email_verified
+    }
+
+    pub fn display_name(&self) -> Option<&DisplayName> {
+        self.display_name.as_ref()
+    }
+
+    /// Returns the email only when the provider explicitly verified it.
+    ///
+    /// This is the safe accessor for account matching/linking decisions.
+    pub fn verified_email(&self) -> Option<&Email> {
+        if self.email_verified {
+            self.email.as_ref()
+        } else {
+            None
+        }
+    }
+}
+
+fn validate_provider_subject(input: &str) -> NythosResult<String> {
+    let value = input.trim();
+
+    if value.is_empty() {
+        return Err(AuthError::ValidationError(
+            "provider subject cannot be empty".to_owned(),
+        ));
+    }
+
+    Ok(value.to_owned())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ExternalIdentity, OAuthProviderKind};
+    use super::{
+        ExternalIdentity, OAuthProviderKind, TenantOAuthProviderConfig, VerifiedExternalProfile,
+    };
     use crate::{AuthError, DisplayName, Email, TenantId, UserId};
     use std::{
         str::FromStr,
@@ -376,5 +495,105 @@ mod tests {
         assert_eq!(identity.provider_subject(), "github-sub-456");
         assert_eq!(identity.linked_at(), linked_at);
         assert_eq!(identity.last_seen_at(), next_seen_at);
+    }
+
+    #[test]
+    fn tenant_oauth_provider_config_models_enabled_and_registration_flags() {
+        let tenant_id = TenantId::generate();
+        let config =
+            TenantOAuthProviderConfig::new(tenant_id, OAuthProviderKind::Google, true, false);
+
+        assert_eq!(config.tenant_id(), tenant_id);
+        assert_eq!(config.provider_kind(), OAuthProviderKind::Google);
+        assert!(config.is_enabled());
+        assert!(!config.registration_allowed());
+    }
+
+    #[test]
+    fn tenant_oauth_provider_config_can_disable_provider_and_registration() {
+        let config = TenantOAuthProviderConfig::new(
+            TenantId::generate(),
+            OAuthProviderKind::GitHub,
+            false,
+            false,
+        );
+
+        assert!(!config.is_enabled());
+        assert!(!config.registration_allowed());
+    }
+
+    #[test]
+    fn verified_external_profile_requires_subject() {
+        let result =
+            VerifiedExternalProfile::new(OAuthProviderKind::Google, "   ", None, true, None);
+
+        assert!(matches!(result, Err(AuthError::ValidationError(_))));
+    }
+
+    #[test]
+    fn verified_external_profile_stores_provider_subject_and_metadata() {
+        let email = Email::parse("Person@Example.com").unwrap();
+        let display_name = DisplayName::parse("Person Example").unwrap();
+        let profile = VerifiedExternalProfile::new(
+            OAuthProviderKind::Microsoft,
+            "  microsoft-sub-123  ",
+            Some(email.clone()),
+            true,
+            Some(display_name.clone()),
+        )
+        .unwrap();
+
+        assert_eq!(profile.provider_kind(), OAuthProviderKind::Microsoft);
+        assert_eq!(profile.provider_subject(), "microsoft-sub-123");
+        assert_eq!(profile.email(), Some(&email));
+        assert!(profile.email_verified());
+        assert_eq!(profile.display_name(), Some(&display_name));
+    }
+
+    #[test]
+    fn verified_external_profile_exposes_only_verified_email() {
+        let email = Email::parse("Person@Example.com").unwrap();
+        let profile = VerifiedExternalProfile::new(
+            OAuthProviderKind::Google,
+            "google-sub-123",
+            Some(email.clone()),
+            true,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(profile.email(), Some(&email));
+        assert_eq!(profile.verified_email(), Some(&email));
+    }
+
+    #[test]
+    fn verified_external_profile_hides_unverified_email() {
+        let email = Email::parse("Person@Example.com").unwrap();
+        let profile = VerifiedExternalProfile::new(
+            OAuthProviderKind::Google,
+            "google-sub-123",
+            Some(email.clone()),
+            false,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(profile.email(), Some(&email));
+        assert!(profile.verified_email().is_none());
+    }
+
+    #[test]
+    fn verified_external_profile_without_email_has_no_verified_email() {
+        let profile = VerifiedExternalProfile::new(
+            OAuthProviderKind::GitHub,
+            "github-sub-123",
+            None,
+            true,
+            None,
+        )
+        .unwrap();
+
+        assert!(profile.email().is_none());
+        assert!(profile.verified_email().is_none());
     }
 }

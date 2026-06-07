@@ -23,8 +23,8 @@ pub use auth::{
 };
 pub use domain::{
     DisplayName, Email, ExternalIdentity, LoginIdentifier, OAuthProviderKind, Password, RoleId,
-    SessionId, Tenant, TenantAuthPolicy, TenantId, TenantSettings, User, UserId, UserStatus,
-    Username,
+    SessionId, Tenant, TenantAuthPolicy, TenantId, TenantOAuthProviderConfig, TenantSettings, User,
+    UserId, UserStatus, Username, VerifiedExternalProfile,
 };
 pub use error::{AuthError, NythosResult};
 pub use ports::{
