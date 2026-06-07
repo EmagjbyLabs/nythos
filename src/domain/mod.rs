@@ -5,8 +5,10 @@
 
 pub mod identity;
 pub mod ids;
+pub mod oauth;
 pub mod value_objects;
 
 pub use identity::{Tenant, TenantAuthPolicy, TenantSettings, User, UserStatus};
 pub use ids::{RoleId, SessionId, TenantId, UserId};
+pub use oauth::OAuthProviderKind;
 pub use value_objects::{DisplayName, Email, LoginIdentifier, Password, Username};
