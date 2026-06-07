@@ -626,3 +626,262 @@ fn oauth_login_provider_disabled_is_modeled_as_outcome_not_error() {
         _ => panic!("expected provider disabled outcome"),
     }
 }
+
+#[test]
+fn link_identity_links_active_user() {
+    block_on(async {
+        let identities = InMemoryExternalIdentityRepository::new();
+        let users = InMemoryUserRepository::new();
+        let configs = InMemoryTenantOAuthProviderConfigPort::new();
+        let tenant_id = TenantId::generate();
+        let now = issued_at();
+        let profile = verified_google_profile("person@example.com");
+
+        let user = users
+            .create(
+                tenant_id,
+                NewUser::new(nythos_core::Email::parse("person@example.com").unwrap()),
+                password_hash(),
+            )
+            .await
+            .unwrap();
+
+        let service = OAuthLoginService::new(&identities, &users, &configs);
+
+        let identity = service
+            .link_identity(tenant_id, user.id(), profile.clone(), now)
+            .await
+            .unwrap();
+
+        assert_eq!(identity.tenant_id(), tenant_id);
+        assert_eq!(identity.user_id(), user.id());
+        assert_eq!(identity.provider_kind(), OAuthProviderKind::Google);
+        assert_eq!(identity.provider_subject(), profile.provider_subject());
+        assert_eq!(identity.provider_email(), profile.email());
+        assert_eq!(identity.provider_display_name(), profile.display_name());
+        assert_eq!(identity.linked_at(), now);
+        assert_eq!(identity.last_seen_at(), now);
+
+        let stored = identities
+            .find_by_provider(
+                tenant_id,
+                OAuthProviderKind::Google,
+                profile.provider_subject(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(stored, identity);
+    });
+}
+
+#[test]
+fn link_identity_rejects_missing_user() {
+    block_on(async {
+        let identities = InMemoryExternalIdentityRepository::new();
+        let users = InMemoryUserRepository::new();
+        let configs = InMemoryTenantOAuthProviderConfigPort::new();
+        let service = OAuthLoginService::new(&identities, &users, &configs);
+
+        let result = service
+            .link_identity(
+                TenantId::generate(),
+                UserId::generate(),
+                verified_google_profile("person@example.com"),
+                issued_at(),
+            )
+            .await;
+
+        assert!(matches!(result, Err(AuthError::UserNotFoundOrInactive)));
+    });
+}
+
+#[test]
+fn link_identity_rejects_locked_user() {
+    block_on(async {
+        let identities = InMemoryExternalIdentityRepository::new();
+        let users = InMemoryUserRepository::new();
+        let configs = InMemoryTenantOAuthProviderConfigPort::new();
+        let tenant_id = TenantId::generate();
+
+        let user = users
+            .create(
+                tenant_id,
+                NewUser::new(nythos_core::Email::parse("person@example.com").unwrap()),
+                password_hash(),
+            )
+            .await
+            .unwrap();
+
+        users
+            .update_status(tenant_id, user.id(), UserStatus::Locked)
+            .await
+            .unwrap();
+
+        let service = OAuthLoginService::new(&identities, &users, &configs);
+
+        let result = service
+            .link_identity(
+                tenant_id,
+                user.id(),
+                verified_google_profile("person@example.com"),
+                issued_at(),
+            )
+            .await;
+
+        assert!(matches!(result, Err(AuthError::UserNotFoundOrInactive)));
+    });
+}
+
+#[test]
+fn link_identity_rejects_disabled_user() {
+    block_on(async {
+        let identities = InMemoryExternalIdentityRepository::new();
+        let users = InMemoryUserRepository::new();
+        let configs = InMemoryTenantOAuthProviderConfigPort::new();
+        let tenant_id = TenantId::generate();
+
+        let user = users
+            .create(
+                tenant_id,
+                NewUser::new(nythos_core::Email::parse("person@example.com").unwrap()),
+                password_hash(),
+            )
+            .await
+            .unwrap();
+
+        users
+            .update_status(tenant_id, user.id(), UserStatus::Disabled)
+            .await
+            .unwrap();
+
+        let service = OAuthLoginService::new(&identities, &users, &configs);
+
+        let result = service
+            .link_identity(
+                tenant_id,
+                user.id(),
+                verified_google_profile("person@example.com"),
+                issued_at(),
+            )
+            .await;
+
+        assert!(matches!(result, Err(AuthError::UserNotFoundOrInactive)));
+    });
+}
+
+#[test]
+fn link_identity_rejects_identity_already_linked_to_same_user() {
+    block_on(async {
+        let identities = InMemoryExternalIdentityRepository::new();
+        let users = InMemoryUserRepository::new();
+        let configs = InMemoryTenantOAuthProviderConfigPort::new();
+        let tenant_id = TenantId::generate();
+        let profile = verified_google_profile("person@example.com");
+
+        let user = users
+            .create(
+                tenant_id,
+                NewUser::new(nythos_core::Email::parse("person@example.com").unwrap()),
+                password_hash(),
+            )
+            .await
+            .unwrap();
+
+        identities
+            .link(external_identity(
+                tenant_id,
+                user.id(),
+                profile.provider_subject(),
+            ))
+            .await
+            .unwrap();
+
+        let service = OAuthLoginService::new(&identities, &users, &configs);
+
+        let result = service
+            .link_identity(tenant_id, user.id(), profile, issued_at())
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(AuthError::OAuthIdentityAlreadyLinkedToSelf)
+        ));
+    });
+}
+
+#[test]
+fn link_identity_rejects_identity_already_linked_to_different_user() {
+    block_on(async {
+        let identities = InMemoryExternalIdentityRepository::new();
+        let users = InMemoryUserRepository::new();
+        let configs = InMemoryTenantOAuthProviderConfigPort::new();
+        let tenant_id = TenantId::generate();
+        let profile = verified_google_profile("person@example.com");
+
+        let existing_user = users
+            .create(
+                tenant_id,
+                NewUser::new(nythos_core::Email::parse("existing@example.com").unwrap()),
+                password_hash(),
+            )
+            .await
+            .unwrap();
+
+        let target_user = users
+            .create(
+                tenant_id,
+                NewUser::new(nythos_core::Email::parse("target@example.com").unwrap()),
+                password_hash(),
+            )
+            .await
+            .unwrap();
+
+        identities
+            .link(external_identity(
+                tenant_id,
+                existing_user.id(),
+                profile.provider_subject(),
+            ))
+            .await
+            .unwrap();
+
+        let service = OAuthLoginService::new(&identities, &users, &configs);
+
+        let result = service
+            .link_identity(tenant_id, target_user.id(), profile, issued_at())
+            .await;
+
+        assert!(matches!(result, Err(AuthError::OAuthIdentityAlreadyLinked)));
+    });
+}
+
+#[test]
+fn link_identity_does_not_require_provider_config() {
+    block_on(async {
+        let identities = InMemoryExternalIdentityRepository::new();
+        let users = InMemoryUserRepository::new();
+        let configs = InMemoryTenantOAuthProviderConfigPort::new();
+        let tenant_id = TenantId::generate();
+        let profile = verified_google_profile("person@example.com");
+
+        let user = users
+            .create(
+                tenant_id,
+                NewUser::new(nythos_core::Email::parse("person@example.com").unwrap()),
+                password_hash(),
+            )
+            .await
+            .unwrap();
+
+        let service = OAuthLoginService::new(&identities, &users, &configs);
+
+        let identity = service
+            .link_identity(tenant_id, user.id(), profile, issued_at())
+            .await
+            .unwrap();
+
+        assert_eq!(identity.user_id(), user.id());
+    });
+}
