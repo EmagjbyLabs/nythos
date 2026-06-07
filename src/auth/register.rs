@@ -176,6 +176,8 @@ impl RegisterResult {
 ///
 /// This flow:
 /// - validates email and password through core value objects
+/// - loads tenant auth policy through `TenantPolicyPort`
+/// - validates and policy-gates optional profile fields
 /// - enforces tenant-scoped uniqueness through `UserRepository`
 /// - hashes the password through `PasswordHasher`
 /// - persists the user through `UserRepository`

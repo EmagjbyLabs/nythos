@@ -2,8 +2,9 @@ use std::time::{Duration, SystemTime};
 
 use super::issuance::issue_session_auth;
 use crate::{
-    AccessToken, AuthError, Claims, Email, NythosResult, Password, PasswordHasher, RefreshToken,
-    Role, RoleRepository, Session, SessionStore, TenantId, TokenSigner, User, UserRepository,
+    AccessToken, AuthError, Claims, LoginIdentifier, NythosResult, Password, PasswordHasher,
+    RefreshToken, Role, RoleRepository, Session, SessionStore, TenantId, TenantPolicyPort,
+    TokenSigner, User, UserCredentials, UserRepository,
 };
 
 /// Input for the login orchestration flow.
@@ -145,25 +146,29 @@ impl LoginAuthMaterial {
 /// Login orchestration service.
 ///
 /// This flow:
-/// - validates inbound email and password
-/// - loads the user within tenant scope
+/// - parses inbound login identifier and password
+/// - loads tenant auth policy through `TenantPolicyPort`
+/// - branches between email and username credential lookup
+/// - rejects username login when tenant policy disables it
 /// - checks account status before password verification completes the login
 /// - verifies the password through `PasswordHasher`
 /// - loads tenant-scoped roles through `RoleRepository`
 /// - creates session state through `SessionStore`
 /// - builds claims and signs an access token through `TokenSigner`
-pub struct LoginService<'a, U, R, S, H, T> {
+pub struct LoginService<'a, U, R, P, S, H, T> {
     user_repository: &'a U,
     role_repository: &'a R,
+    tenant_policy_port: &'a P,
     session_store: &'a S,
     password_hasher: &'a H,
     token_signer: &'a T,
 }
 
-impl<'a, U, R, S, H, T> LoginService<'a, U, R, S, H, T>
+impl<'a, U, R, P, S, H, T> LoginService<'a, U, R, P, S, H, T>
 where
     U: UserRepository,
     R: RoleRepository,
+    P: TenantPolicyPort,
     S: SessionStore,
     H: PasswordHasher,
     T: TokenSigner,
@@ -171,6 +176,7 @@ where
     pub fn new(
         user_repository: &'a U,
         role_repository: &'a R,
+        tenant_policy_port: &'a P,
         session_store: &'a S,
         password_hasher: &'a H,
         token_signer: &'a T,
@@ -178,6 +184,7 @@ where
         Self {
             user_repository,
             role_repository,
+            tenant_policy_port,
             session_store,
             password_hasher,
             token_signer,
@@ -185,12 +192,19 @@ where
     }
 
     pub async fn login(&self, input: LoginInput) -> NythosResult<LoginAuthMaterial> {
-        let email = Email::parse(input.email())?;
+        let identifier = LoginIdentifier::parse(input.identifier())?;
         let password = Password::new(input.password())?;
+        let policy = self
+            .tenant_policy_port
+            .load_auth_policy(input.tenant_id())
+            .await?;
 
         let credentials = self
-            .user_repository
-            .find_credentials_by_email(input.tenant_id(), &email)
+            .find_credentials(
+                input.tenant_id(),
+                &identifier,
+                policy.username_login_enabled(),
+            )
             .await?
             .ok_or(AuthError::InvalidCredentials)?;
 
@@ -231,6 +245,30 @@ where
             issued.access_token,
             issued.claims,
         ))
+    }
+
+    async fn find_credentials(
+        &self,
+        tenant_id: TenantId,
+        identifier: &LoginIdentifier,
+        username_login_enabled: bool,
+    ) -> NythosResult<Option<UserCredentials>> {
+        match identifier {
+            LoginIdentifier::Email(email) => {
+                self.user_repository
+                    .find_credentials_by_email(tenant_id, email)
+                    .await
+            }
+            LoginIdentifier::Username(username) => {
+                if !username_login_enabled {
+                    return Err(AuthError::InvalidCredentials);
+                }
+
+                self.user_repository
+                    .find_credentials_by_username(tenant_id, username)
+                    .await
+            }
+        }
     }
 
     fn ensure_user_can_login(&self, user: &User) -> NythosResult<()> {

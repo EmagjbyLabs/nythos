@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use nythos_core::{
     AuthError, Email, NewUser, NythosResult, PasswordHash, TenantId, User, UserCredentials, UserId,
-    UserRepository, UserStatus,
+    UserRepository, UserStatus, Username,
 };
 
 use crate::support::fixtures::canonical_issued_at;
@@ -12,13 +12,25 @@ type UserStore = BTreeMap<(TenantId, UserId), (User, PasswordHash)>;
 #[derive(Clone)]
 pub struct InMemoryUserRepository {
     users: Rc<RefCell<UserStore>>,
+    username_lookup_count: Rc<RefCell<usize>>,
+    username_credentials_lookup_count: Rc<RefCell<usize>>,
 }
 
 impl InMemoryUserRepository {
     pub fn new() -> Self {
         Self {
             users: Rc::new(RefCell::new(BTreeMap::new())),
+            username_lookup_count: Rc::new(RefCell::new(0)),
+            username_credentials_lookup_count: Rc::new(RefCell::new(0)),
         }
+    }
+
+    pub fn username_lookup_count(&self) -> usize {
+        *self.username_lookup_count.borrow()
+    }
+
+    pub fn username_credentials_lookup_count(&self) -> usize {
+        *self.username_credentials_lookup_count.borrow()
     }
 }
 
@@ -47,8 +59,10 @@ impl UserRepository for InMemoryUserRepository {
     async fn find_by_username(
         &self,
         tenant_id: TenantId,
-        username: &nythos_core::Username,
+        username: &Username,
     ) -> NythosResult<Option<User>> {
+        *self.username_lookup_count.borrow_mut() += 1;
+
         Ok(self
             .users
             .borrow()
@@ -85,8 +99,10 @@ impl UserRepository for InMemoryUserRepository {
     async fn find_credentials_by_username(
         &self,
         tenant_id: TenantId,
-        username: &nythos_core::Username,
+        username: &Username,
     ) -> NythosResult<Option<UserCredentials>> {
+        *self.username_credentials_lookup_count.borrow_mut() += 1;
+
         Ok(self
             .users
             .borrow()
