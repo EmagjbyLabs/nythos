@@ -17,17 +17,19 @@ Nythos is the authentication and authorization system in the Emagjby ecosystem.
 `nythos-core` owns:
 
 - domain primitives and validation
-- identity, auth, session, and RBAC models
+- identity, auth, OAuth foundation, session, and RBAC models
 - core auth orchestration rules
 - pure trait contracts for infrastructure dependencies
 - typed tenant auth policy for profile-field and username-login decisions
+- tenant OAuth provider enablement and registration decisions
+- external identity linking decisions and explicit OAuth login outcomes
 
 `nythos-core` does not own:
 
 - HTTP or API frameworks
 - database drivers or persistence adapters
 - Redis, queues, email delivery, or external integrations
-- OAuth providers or OAuth flow implementation
+- OAuth redirects, state/CSRF, PKCE, token exchange, provider validation, provider SDKs, cookies, or HTTP routes
 - product-specific operational behavior
 
 ## Core Rule
@@ -62,7 +64,7 @@ Dependency direction is inward toward the domain. Ports define contracts at the 
 `nythos-core` already includes implemented core domain types, auth/session/RBAC models,
 boundary ports, and orchestration services.
 
-The current identity profile and login identifier work includes:
+The identity profile and login identifier work includes:
 
 - `Username`, `DisplayName`, and `LoginIdentifier` value objects
 - `TenantAuthPolicy` with username registration, display-name registration, and username-login flags defaulting to disabled
@@ -70,7 +72,21 @@ The current identity profile and login identifier work includes:
 - optional username and display-name fields on `User`, `NewUser`, and `RegisterInput`
 - tenant-policy-gated username registration, display-name registration, and username login
 
-Email/password registration continues to work with the default policy when no optional profile fields are supplied. OAuth is not part of `nythos-core v0.2.0`.
+Email/password registration continues to work with the default policy when no optional profile fields are supplied.
+
+The OAuth foundation work includes:
+
+- `OAuthProviderKind`
+- `ExternalIdentity`
+- `TenantOAuthProviderConfig`
+- `VerifiedExternalProfile`
+- `ExternalIdentityRepository`
+- `TenantOAuthProviderConfigPort`
+- `OAuthLoginOutcome`
+- `OAuthLoginService::resolve_login`
+- `OAuthLoginService::link_identity`
+
+OAuth in `nythos-core` is decision-first and infrastructure-free. Gateway/provider adapters verify OAuth data first and pass only `VerifiedExternalProfile` into core. Core returns `OAuthLoginOutcome` values, checks user status before OAuth login or linking, and keeps tenant-scoped repository contracts. Core does not validate OAuth tokens, perform provider HTTP calls, issue OAuth sessions, create users through OAuth registration, store secrets, or own provider metadata.
 
 The reference docs under `docs/` describe the architecture and contracts that the
 current implementation follows.

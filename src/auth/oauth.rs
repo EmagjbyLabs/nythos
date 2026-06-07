@@ -1,3 +1,11 @@
+//! OAuth login and explicit identity-linking decisions.
+//!
+//! `nythos-core` receives `VerifiedExternalProfile` values after the gateway or
+//! provider adapter has completed OAuth verification. This module does not own
+//! redirects, state/CSRF, PKCE, token exchange, provider token validation, JWKS,
+//! provider userinfo calls, cookies, client credentials, HTTP routes,
+//! runtime/framework behavior, user creation, or OAuth session issuance.
+
 use std::time::SystemTime;
 
 use crate::{
@@ -10,6 +18,9 @@ use crate::{
 /// These variants represent expected auth states, not transport errors.
 /// The caller decides whether to issue a session, show a linking flow,
 /// start registration, or reject the request.
+///
+/// In v0.2.1, core returns the decision only. It does not issue OAuth sessions
+/// or create users for any outcome.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OAuthLoginOutcome {
     /// The provider is disabled or not configured for the tenant.
@@ -60,6 +71,7 @@ where
     U: UserRepository,
     C: TenantOAuthProviderConfigPort,
 {
+    /// Creates an OAuth login service over tenant-scoped repository ports.
     pub fn new(
         identity_repository: &'a I,
         user_repository: &'a U,
@@ -72,24 +84,34 @@ where
         }
     }
 
+    /// Returns the external identity repository used by this service.
     pub fn identity_repository(&self) -> &'a I {
         self.identity_repository
     }
 
+    /// Returns the user repository used for tenant-scoped user lookups.
     pub fn user_repository(&self) -> &'a U {
         self.user_repository
     }
 
+    /// Returns the tenant OAuth provider configuration port.
     pub fn oauth_config_port(&self) -> &'a C {
         self.oauth_config_port
     }
 
     /// Resolves the domain outcome for an OAuth login attempt.
     ///
-    /// This method does not create users, link external identities, or issue
-    /// sessions. It only decides what should happen next based on tenant
-    /// provider configuration, existing external identity links, verified email
-    /// matching, and account status.
+    /// This method does not create users, link external identities, issue
+    /// sessions, or validate provider tokens. It only decides what should happen
+    /// next based on tenant provider configuration, existing external identity
+    /// links, linked-user status, verified-email matching, registration policy,
+    /// and matched-user status.
+    ///
+    /// Decision order matches the implementation: disabled or missing provider
+    /// config returns `ProviderDisabled`; an existing provider identity returns
+    /// `ExistingIdentityLogin` after status checks and last-seen update; a
+    /// verified email match returns `LinkRequired`; otherwise the result is
+    /// `RegistrationRequired` with the tenant provider registration policy.
     pub async fn resolve_login(
         &self,
         tenant_id: TenantId,
@@ -132,15 +154,15 @@ where
             });
         }
 
-        if let Some(email) = profile.verified_email() {
-            if let Some(user) = self.user_repository.find_by_email(tenant_id, email).await? {
-                Self::ensure_user_is_active(&user)?;
+        if let Some(email) = profile.verified_email()
+            && let Some(user) = self.user_repository.find_by_email(tenant_id, email).await?
+        {
+            Self::ensure_user_is_active(&user)?;
 
-                return Ok(OAuthLoginOutcome::LinkRequired {
-                    user_id: user.id(),
-                    profile,
-                });
-            }
+            return Ok(OAuthLoginOutcome::LinkRequired {
+                user_id: user.id(),
+                profile,
+            });
         }
 
         Ok(OAuthLoginOutcome::RegistrationRequired {
@@ -152,8 +174,12 @@ where
     /// Explicitly links a verified external profile to an existing active user.
     ///
     /// This method should be called only after gateway has obtained explicit
-    /// user consent. It does not create users, issue sessions, perform provider
-    /// verification, or re-check provider enablement.
+    /// user consent. It validates that the target user exists and can
+    /// authenticate, rejects duplicate provider-subject linkage, and persists
+    /// the new external identity through `ExternalIdentityRepository`.
+    ///
+    /// It does not create users, issue sessions, perform provider verification,
+    /// or re-check provider enablement.
     pub async fn link_identity(
         &self,
         tenant_id: TenantId,

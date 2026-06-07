@@ -16,15 +16,27 @@ It owns:
 - auth, session, and RBAC business rules
 - orchestration logic for core auth flows
 - async trait contracts for required external capabilities
+- OAuth provider/domain modeling and decision-only login/linking outcomes
 
 It does not own:
 
 - HTTP handlers, routers, middleware, or status codes
 - SQL queries, ORM models, migrations, or database drivers
 - Redis clients, cache adapters, queues, or event buses
-- email, SMS, OAuth providers, or webhook integrations
+- email, SMS, OAuth provider mechanics, or webhook integrations
 - concrete signing libraries or password-hasher implementations
 - product-specific admin models or deployment concerns
+
+For OAuth specifically, gateway/adapters own redirects, OAuth state and CSRF,
+PKCE, authorization-code exchange, provider token exchange, provider ID-token
+validation, JWKS fetching, provider userinfo fetching, HTTP routes, cookies,
+client secrets, client IDs, provider SDKs, framework/runtime behavior, and any
+database schema or migrations.
+
+Core owns only provider/domain modeling, tenant/provider enablement decisions,
+verified-profile boundary modeling, external identity linking decisions, explicit
+login outcomes, user-status checks before OAuth login/linking, and tenant-scoped
+repository contracts.
 
 ## Five Layers
 
@@ -102,6 +114,10 @@ Contains:
 - `Tenant`
 - `TenantSettings`
 - `TenantAuthPolicy`
+- `OAuthProviderKind`
+- `ExternalIdentity`
+- `TenantOAuthProviderConfig`
+- `VerifiedExternalProfile`
 
 `TenantSettings` is generic tenant metadata only. Auth behavior must not read
 string flags from it; services use `TenantAuthPolicy` loaded through
@@ -122,6 +138,13 @@ Contains:
 - `RefreshService`
 - `RevokeSessionService`
 - `RevokeAllSessionsService`
+- `OAuthLoginOutcome`
+- `OAuthLoginService`
+
+`OAuthLoginService` is decision-only. It receives `VerifiedExternalProfile` from
+gateway/adapters after provider verification, returns explicit outcomes, and does
+not create users, link identities during `resolve_login`, issue sessions, or
+validate provider tokens.
 
 ## `session`
 
@@ -161,6 +184,8 @@ Contains:
 - `RoleAssignmentInput`
 - `SessionRecord`
 - `RefreshTokenRotation`
+- `ExternalIdentityRepository`
+- `TenantOAuthProviderConfigPort`
 
 No default adapters belong here.
 
@@ -189,6 +214,13 @@ Examples:
 - hashing and verifying passwords
 - signing and verifying access tokens
 - storing, rotating, and revoking sessions
+- resolving tenant-scoped OAuth provider config
+- finding, linking, and touching tenant-scoped external identities
+
+OAuth configuration ports are secrets-free. `TenantOAuthProviderConfig` contains
+only whether a provider is enabled and whether registration through it is
+allowed. It must not contain secrets, client IDs, URLs, redirect URIs, JWKS URLs,
+token endpoints, or provider HTTP metadata.
 
 Ports are not extension points for arbitrary plugin systems. They exist because
 the core must remain deployment-agnostic.

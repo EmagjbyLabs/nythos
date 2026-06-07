@@ -1,3 +1,9 @@
+//! Tenant OAuth provider configuration port.
+//!
+//! This port loads only core-owned OAuth domain decisions: provider enablement
+//! and registration allowance. It is deliberately separate from
+//! `TenantPolicyPort` and deliberately secrets-free.
+
 use crate::{NythosResult, OAuthProviderKind, TenantId, TenantOAuthProviderConfig};
 
 /// Tenant OAuth provider configuration loading port.

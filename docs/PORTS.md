@@ -374,6 +374,98 @@ trait RevocationChecker {
 }
 ```
 
+## `ExternalIdentityRepository`
+
+Responsibility:
+
+- find an external identity by tenant/provider/subject
+- find all external identities linked to a tenant-scoped user
+- link a provider identity to a user
+- touch the last-seen timestamp for an external identity
+
+Must not do:
+
+- cross-tenant identity resolution
+- OAuth provider verification
+- provider HTTP calls
+- session issuance
+- user creation
+- provider enablement decisions
+
+Core assumptions:
+
+- `(tenant_id, provider_kind, provider_subject)` is the natural unique key
+- duplicate links for that natural key are rejected
+- returned identities are scoped to the requested tenant
+
+Implemented contract:
+
+```rust
+trait ExternalIdentityRepository {
+    async fn find_by_provider(
+        &self,
+        tenant_id: TenantId,
+        provider_kind: OAuthProviderKind,
+        provider_subject: &str,
+    ) -> NythosResult<Option<ExternalIdentity>>;
+    async fn find_by_user(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+    ) -> NythosResult<Vec<ExternalIdentity>>;
+    async fn link(&self, identity: ExternalIdentity) -> NythosResult<()>;
+    async fn touch(
+        &self,
+        tenant_id: TenantId,
+        provider_kind: OAuthProviderKind,
+        provider_subject: &str,
+        seen_at: SystemTime,
+    ) -> NythosResult<()>;
+}
+```
+
+Flow notes:
+
+- `resolve_login` uses `find_by_provider` to find existing OAuth links
+- `resolve_login` calls `touch` only after the linked user exists and can authenticate
+- `link_identity` uses `find_by_provider` to reject duplicate linkage before calling `link`
+
+## `TenantOAuthProviderConfigPort`
+
+Responsibility:
+
+- load tenant/provider OAuth config for core domain decisions
+
+Must not do:
+
+- expose secrets, client IDs, URLs, redirect URIs, JWKS URLs, token endpoints, or provider HTTP metadata
+- perform OAuth redirects or callback handling
+- perform token exchange or provider validation
+- merge OAuth provider config into `TenantPolicyPort`
+
+Core assumptions:
+
+- missing provider config means provider disabled
+- loaded config contains only provider enabled/disabled and registration allowed/disallowed decisions
+- this port remains separate from `TenantPolicyPort`
+
+Implemented contract:
+
+```rust
+trait TenantOAuthProviderConfigPort {
+    async fn load_provider_config(
+        &self,
+        tenant_id: TenantId,
+        provider_kind: OAuthProviderKind,
+    ) -> NythosResult<Option<TenantOAuthProviderConfig>>;
+}
+```
+
+Flow notes:
+
+- `resolve_login` checks this port before any identity or email matching decision
+- `link_identity` does not call this port and does not re-check provider enablement
+
 ## Notes On Port Shape
 
 - the traits are async and accept or return domain types plus small helper payloads

@@ -5,6 +5,9 @@
 //! `nythos-core` contains implemented domain models, orchestration services,
 //! and trait contracts only.
 //! It intentionally excludes HTTP, storage drivers, and other infrastructure.
+//! The OAuth surface is decision-first: gateway/provider adapters verify OAuth
+//! data and pass `VerifiedExternalProfile` into core, then core returns explicit
+//! login or linking outcomes without issuing OAuth sessions or creating users.
 //! The crate root re-exports the main public surface, with grouped access also
 //! available under `auth`, `domain`, `ports`, `rbac`, `session`, and `error`.
 

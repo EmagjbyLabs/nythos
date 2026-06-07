@@ -1,19 +1,27 @@
 //! OAuth provider and external identity domain models.
 //!
-//! This module contains the infrastructure-free OAauth domain surface used by
-//! `nythos-core`. Provider redirects, token exchange, JWKS validation, provider
-//! HTTP calls, and userinfo fetching, client secrets, and callback handling remain
-//! outside core.
+//! This module contains the infrastructure-free OAuth domain surface used by
+//! `nythos-core`. Provider redirects, state/CSRF, PKCE, authorization-code and
+//! token exchange, ID-token validation, JWKS fetching, provider userinfo calls,
+//! cookies, client credentials, provider SDKs, HTTP routes, database schema, and
+//! runtime/framework behavior remain outside core.
+//!
+//! The gateway or provider adapter verifies OAuth provider data first and then
+//! constructs `VerifiedExternalProfile`. Core treats that value as the trust
+//! boundary and does not validate OAuth tokens or call providers.
 
 use std::{fmt, str::FromStr, time::SystemTime};
 
 use crate::{AuthError, DisplayName, Email, NythosResult, TenantId, UserId};
 
-/// Supported OAuth/OIDC provider kinds.
+/// Supported OAuth/OIDC provider kinds known to the core domain.
 ///
 /// The stable string representation is intentionally lowercase and suitable for
 /// persistence. This enum is non-exhaustive so future providers can be added
 /// without forcing downstream exhaustive matches.
+///
+/// Provider-specific endpoints, scopes, client IDs, client secrets, SDK choices,
+/// and runtime behavior are not represented here.
 #[non_exhaustive]
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -69,6 +77,9 @@ impl FromStr for OAuthProviderKind {
 /// The provider subject is the stable opaque subject/user ID issued by the
 /// external provider. Provider email and display name are metadata captured at
 /// link time and must not replace the provider subject as the login key.
+///
+/// Storage adapters must enforce uniqueness for the natural key inside the
+/// tenant. Cross-tenant identity resolution is outside the core contract.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ExternalIdentity {
     tenant_id: TenantId,
@@ -175,7 +186,8 @@ impl ExternalIdentity {
 /// This type intentionally contains only domain decisions the core needs:
 /// whether the provider is enabled and whether registration through it is
 /// allowed. Secrets, client IDs, redirect URIs, provider endpoints, JWKS URLs,
-/// and HTTP metadata belong to gateway/infrastructure code.
+/// token endpoints, provider URLs, and HTTP metadata belong to
+/// gateway/infrastructure code and must not be added to this type.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TenantOAuthProviderConfig {
     tenant_id: TenantId,
@@ -223,9 +235,10 @@ impl TenantOAuthProviderConfig {
 /// Gateway/provider adapters must complete those checks before constructing
 /// this value.
 ///
-/// Unverified email must not be used for account linking decisions. Use
-/// `verified_email()` when deciding whether an OAuth profile may match an
-/// existing user.
+/// `email()` exposes provider metadata. Unverified email must not be used for
+/// account linking, auto-linking, or account matching decisions. Use
+/// `verified_email()` for those decisions; it returns `Some(&Email)` only when
+/// `email_verified` is true.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VerifiedExternalProfile {
     provider_kind: OAuthProviderKind,
@@ -262,10 +275,16 @@ impl VerifiedExternalProfile {
         &self.provider_subject
     }
 
+    /// Returns the provider email metadata, whether or not the provider marked
+    /// it verified.
+    ///
+    /// This accessor is not safe for account matching or automatic linking.
+    /// Use `verified_email()` for those decisions.
     pub fn email(&self) -> Option<&Email> {
         self.email.as_ref()
     }
 
+    /// Returns whether the provider adapter marked the profile email verified.
     pub const fn email_verified(&self) -> bool {
         self.email_verified
     }
