@@ -22,8 +22,9 @@ pub use auth::{
     RevokeResult, RevokeSessionInput, RevokeSessionService, TokenPurpose,
 };
 pub use domain::{
-    DisplayName, Email, LoginIdentifier, OAuthProviderKind, Password, RoleId, SessionId, Tenant,
-    TenantAuthPolicy, TenantId, TenantSettings, User, UserId, UserStatus, Username,
+    DisplayName, Email, ExternalIdentity, LoginIdentifier, OAuthProviderKind, Password, RoleId,
+    SessionId, Tenant, TenantAuthPolicy, TenantId, TenantSettings, User, UserId, UserStatus,
+    Username,
 };
 pub use error::{AuthError, NythosResult};
 pub use ports::{
