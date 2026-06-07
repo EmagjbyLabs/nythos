@@ -4,7 +4,8 @@ use std::{
 };
 
 use nythos_core::{
-    AuthError, DisplayName, Email, ExternalIdentity, OAuthProviderKind, TenantId, UserId,
+    AuthError, DisplayName, Email, ExternalIdentity, OAuthProviderKind, TenantId,
+    TenantOAuthProviderConfig, UserId, VerifiedExternalProfile,
 };
 
 #[test]
@@ -201,4 +202,105 @@ fn external_identity_touch_updates_last_seen_at() {
 
     assert_eq!(identity.linked_at(), linked_at);
     assert_eq!(identity.last_seen_at(), next_seen_at);
+}
+
+#[test]
+fn tenant_oauth_provider_config_models_enabled_and_registration_flags() {
+    let tenant_id = TenantId::generate();
+    let config = TenantOAuthProviderConfig::new(tenant_id, OAuthProviderKind::Google, true, false);
+
+    assert_eq!(config.tenant_id(), tenant_id);
+    assert_eq!(config.provider_kind(), OAuthProviderKind::Google);
+    assert!(config.is_enabled());
+    assert!(!config.registration_allowed());
+}
+
+#[test]
+fn tenant_oauth_provider_config_can_disable_provider_and_registration() {
+    let config = TenantOAuthProviderConfig::new(
+        TenantId::generate(),
+        OAuthProviderKind::GitHub,
+        false,
+        false,
+    );
+
+    assert!(!config.is_enabled());
+    assert!(!config.registration_allowed());
+}
+
+#[test]
+fn verified_external_profile_requires_subject() {
+    let result = VerifiedExternalProfile::new(OAuthProviderKind::Google, "   ", None, true, None);
+
+    assert!(matches!(result, Err(AuthError::ValidationError(_))));
+}
+
+#[test]
+fn verified_external_profile_stores_provider_subject_and_metadata() {
+    let email = Email::parse("Person@Example.com").unwrap();
+    let display_name = DisplayName::parse("Person Example").unwrap();
+
+    let profile = VerifiedExternalProfile::new(
+        OAuthProviderKind::Microsoft,
+        "  microsoft-sub-123  ",
+        Some(email.clone()),
+        true,
+        Some(display_name.clone()),
+    )
+    .unwrap();
+
+    assert_eq!(profile.provider_kind(), OAuthProviderKind::Microsoft);
+    assert_eq!(profile.provider_subject(), "microsoft-sub-123");
+    assert_eq!(profile.email(), Some(&email));
+    assert!(profile.email_verified());
+    assert_eq!(profile.display_name(), Some(&display_name));
+}
+
+#[test]
+fn verified_external_profile_exposes_only_verified_email() {
+    let email = Email::parse("Person@Example.com").unwrap();
+
+    let profile = VerifiedExternalProfile::new(
+        OAuthProviderKind::Google,
+        "google-sub-123",
+        Some(email.clone()),
+        true,
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(profile.email(), Some(&email));
+    assert_eq!(profile.verified_email(), Some(&email));
+}
+
+#[test]
+fn verified_external_profile_hides_unverified_email() {
+    let email = Email::parse("Person@Example.com").unwrap();
+
+    let profile = VerifiedExternalProfile::new(
+        OAuthProviderKind::Google,
+        "google-sub-123",
+        Some(email.clone()),
+        false,
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(profile.email(), Some(&email));
+    assert!(profile.verified_email().is_none());
+}
+
+#[test]
+fn verified_external_profile_without_email_has_no_verified_email() {
+    let profile = VerifiedExternalProfile::new(
+        OAuthProviderKind::GitHub,
+        "github-sub-123",
+        None,
+        true,
+        None,
+    )
+    .unwrap();
+
+    assert!(profile.email().is_none());
+    assert!(profile.verified_email().is_none());
 }
