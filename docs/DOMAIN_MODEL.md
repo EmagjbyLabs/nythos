@@ -61,6 +61,44 @@ Current validation behavior:
 - cannot contain newlines
 - remains distinct from `PasswordHash`
 
+## `Username`
+
+Validated tenant-scoped lookup identifier.
+
+Rules:
+
+- normalized to lowercase ASCII
+- used for username lookup and optional username login
+- distinct from email and display name
+- optional on `User`
+- tenant-scoped uniqueness is checked by services and enforced by repositories or storage outside core
+
+## `DisplayName`
+
+Human-readable profile label.
+
+Rules:
+
+- preserves user-facing casing after trimming
+- optional on `User`
+- profile metadata only
+- not used for login lookup
+
+## `LoginIdentifier`
+
+Typed login identifier used by login orchestration.
+
+Current shape:
+
+- `Email(Email)`
+- `Username(Username)`
+
+Parsing behavior:
+
+- attempts email parsing first
+- attempts username parsing second
+- invalid input returns `AuthError::ValidationError(_)`
+
 ## Identity
 
 ## `User`
@@ -71,6 +109,8 @@ Current fields:
 
 - `UserId`
 - `Email`
+- `Option<Username>`
+- `Option<DisplayName>`
 - `UserStatus`
 - `created_at`
 
@@ -95,6 +135,7 @@ Current fields:
 - `TenantId`
 - slug
 - optional `TenantSettings`
+- `TenantAuthPolicy`
 
 Current notes:
 
@@ -103,6 +144,30 @@ Current notes:
 - RBAC is tenant-scoped
 - user lookup operations in the core are tenant-aware
 - `TenantSettings` is optional tenant metadata stored as a string map
+- `TenantSettings` is non-auth metadata only and must not control auth behavior
+- `TenantAuthPolicy` is the typed auth policy embedded in `Tenant`
+
+## `TenantAuthPolicy`
+
+Typed auth-relevant tenant policy.
+
+Current flags:
+
+- `username_registration_enabled`
+- `display_name_registration_enabled`
+- `username_login_enabled`
+
+Defaults:
+
+- all flags default to `false`
+
+Usage:
+
+- register and login services load auth policy through `TenantPolicyPort`
+- username registration is accepted only when enabled
+- display-name registration is accepted only when enabled
+- username login is accepted only when enabled
+- auth decisions must not read flags from `TenantSettings`
 
 ## Auth Concepts
 
@@ -262,6 +327,7 @@ There is no global admin concept in `nythos-core`.
 
 - a `User` can have many `Session` records
 - a `Session` references exactly one `User` and one `Tenant`
+- a `User` may have an optional `Username` and optional `DisplayName`
 - a `RoleAssignment` links a `User` to a `Role` within one `Tenant`
 - an `AccessToken` is issued from `Claims`
 - a `RefreshToken` is an opaque handle for session continuation
@@ -274,4 +340,5 @@ There is no global admin concept in `nythos-core`.
 - access tokens are short-lived and signed
 - claims carry subject, tenant, purpose, and issue/expiry timestamps
 - raw passwords and stored hashes are separate types
+- tenant auth policy is typed as `TenantAuthPolicy`, not read from `TenantSettings`
 - the core never maps these concepts to HTTP or transport details

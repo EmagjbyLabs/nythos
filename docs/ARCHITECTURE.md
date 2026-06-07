@@ -35,11 +35,15 @@ It does not own:
 - typed IDs
 - `Email`
 - `Password`
+- `Username`
+- `DisplayName`
+- `LoginIdentifier`
 
 2. Identity
 
 - `User`
 - `Tenant`
+- `TenantAuthPolicy`
 
 3. Auth
 
@@ -97,6 +101,11 @@ Contains:
 - `UserStatus`
 - `Tenant`
 - `TenantSettings`
+- `TenantAuthPolicy`
+
+`TenantSettings` is generic tenant metadata only. Auth behavior must not read
+string flags from it; services use `TenantAuthPolicy` loaded through
+`TenantPolicyPort` for auth decisions.
 
 ## `auth`
 
@@ -141,6 +150,7 @@ Contains pure async trait contracts only.
 Contains:
 
 - `UserRepository`
+- `TenantPolicyPort`
 - `RoleRepository`
 - `SessionStore`
 - `PasswordHasher`
@@ -153,6 +163,21 @@ Contains:
 - `RefreshTokenRotation`
 
 No default adapters belong here.
+
+## Service-side Auth Policy Enforcement
+
+Auth policy is enforced in services, not repositories.
+
+- register and login services load `TenantAuthPolicy` through `TenantPolicyPort`
+- register rejects submitted optional profile fields when the corresponding policy flag is disabled
+- login parses `LoginIdentifier` and branches between email and username lookup
+- repositories resolve explicit lookup keys such as email or username
+- repositories do not infer policy from tenant settings or choose a lookup strategy from a raw identifier
+
+`UserRepository` intentionally has explicit credential methods such as
+`find_credentials_by_email` and `find_credentials_by_username`. A generic
+`find_credentials_by_identifier` is intentionally not part of the port shape,
+because parsing, branching, and policy gating belong in the core service layer.
 
 ## Role Of Ports
 

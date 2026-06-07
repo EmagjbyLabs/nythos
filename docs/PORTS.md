@@ -30,12 +30,29 @@ Why it exists:
 - keeps user-creation input focused on validated core data
 - avoids repository contracts that depend on storage-specific creation payloads
 - keeps password-hash transport separate from the user identity payload
+- carries optional `Username` and `DisplayName` profile fields after service-side validation and policy checks
+
+Current shape:
+
+```rust
+pub struct NewUser { /* email, optional username, optional display name */ }
+
+impl NewUser {
+    pub fn new(email: Email) -> Self;
+    pub fn with_profile(
+        email: Email,
+        username: Option<Username>,
+        display_name: Option<DisplayName>,
+    ) -> Self;
+}
+```
 
 ## `UserCredentials`
 
 Used by:
 
 - `UserRepository::find_credentials_by_email`
+- `UserRepository::find_credentials_by_username`
 - `LoginService`
 
 Why it exists:
@@ -90,8 +107,10 @@ Why it exists:
 Responsibility:
 
 - find a user by email within a tenant
+- find a user by username within a tenant
 - find a user by ID within a tenant
 - find login credentials by email within a tenant
+- find login credentials by username within a tenant
 - create a user
 - update user status
 
@@ -100,24 +119,38 @@ Must not do:
 - password hashing
 - token issuance
 - tenant-agnostic lookups when tenant scope is required
+- tenant auth policy decisions
+- lookup by raw login identifier
 - HTTP or database error translation
 
 Core assumptions:
 
 - email lookup is tenant-aware
+- username lookup is tenant-aware
 - duplicate detection can be enforced reliably enough for registration flows
 - returned users reflect current status
+- repositories resolve explicit keys only; services parse `LoginIdentifier` and enforce policy
 
 Implemented contract:
 
 ```rust
 trait UserRepository {
     async fn find_by_email(&self, tenant_id: TenantId, email: &Email) -> NythosResult<Option<User>>;
+    async fn find_by_username(
+        &self,
+        tenant_id: TenantId,
+        username: &Username,
+    ) -> NythosResult<Option<User>>;
     async fn find_by_id(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Option<User>>;
     async fn find_credentials_by_email(
         &self,
         tenant_id: TenantId,
         email: &Email,
+    ) -> NythosResult<Option<UserCredentials>>;
+    async fn find_credentials_by_username(
+        &self,
+        tenant_id: TenantId,
+        username: &Username,
     ) -> NythosResult<Option<UserCredentials>>;
     async fn create(
         &self,
@@ -136,9 +169,43 @@ trait UserRepository {
 
 Flow notes:
 
-- registration uses `find_by_email` for tenant-scoped duplicate checks
-- login uses `find_credentials_by_email` so password verification stays in the core service
+- registration uses `find_by_email` and, when username is present, `find_by_username` for tenant-scoped duplicate checks
+- login uses `find_credentials_by_email` or `find_credentials_by_username` so password verification stays in the core service
+- services enforce tenant auth policy before calling username lookup methods
 - `create` accepts `NewUser` plus `PasswordHash`, not raw persistence fields
+- there is intentionally no `find_credentials_by_identifier`; parsing, branching, and policy checks stay in services
+
+## `TenantPolicyPort`
+
+Responsibility:
+
+- load typed tenant auth policy for auth services
+
+Must not do:
+
+- parse HTTP requests or transport payloads
+- return untyped string settings for auth decisions
+- enforce repository lookups or password verification
+
+Core assumptions:
+
+- all policy loading is tenant-scoped
+- absent or default policy disables username registration, display-name registration, and username login
+- services, not repositories, enforce policy
+
+Implemented contract:
+
+```rust
+trait TenantPolicyPort {
+    async fn load_auth_policy(&self, tenant_id: TenantId) -> NythosResult<TenantAuthPolicy>;
+}
+```
+
+Flow notes:
+
+- register loads this policy before accepting optional username or display name input
+- login loads this policy before username credential lookup
+- `TenantSettings` must not be used for auth policy decisions
 
 ## `RoleRepository`
 

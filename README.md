@@ -6,7 +6,7 @@ Nythos is the authentication and authorization system in the Emagjby ecosystem.
 ## Package
 
 - crate: `nythos-core`
-- version: `0.1.2`
+- version: `0.2.0`
 - license: `MIT`
 - docs: `https://docs.rs/nythos-core`
 - repository: `https://github.com/EmagjbyLabs/nythos`
@@ -20,12 +20,14 @@ Nythos is the authentication and authorization system in the Emagjby ecosystem.
 - identity, auth, session, and RBAC models
 - core auth orchestration rules
 - pure trait contracts for infrastructure dependencies
+- typed tenant auth policy for profile-field and username-login decisions
 
 `nythos-core` does not own:
 
 - HTTP or API frameworks
 - database drivers or persistence adapters
 - Redis, queues, email delivery, or external integrations
+- OAuth providers or OAuth flow implementation
 - product-specific operational behavior
 
 ## Core Rule
@@ -59,6 +61,16 @@ Dependency direction is inward toward the domain. Ports define contracts at the 
 
 `nythos-core` already includes implemented core domain types, auth/session/RBAC models,
 boundary ports, and orchestration services.
+
+The current identity profile and login identifier work includes:
+
+- `Username`, `DisplayName`, and `LoginIdentifier` value objects
+- `TenantAuthPolicy` with username registration, display-name registration, and username-login flags defaulting to disabled
+- `TenantPolicyPort` for loading auth policy before register and login decisions
+- optional username and display-name fields on `User`, `NewUser`, and `RegisterInput`
+- tenant-policy-gated username registration, display-name registration, and username login
+
+Email/password registration continues to work with the default policy when no optional profile fields are supplied. OAuth is not part of `nythos-core v0.2.0`.
 
 The reference docs under `docs/` describe the architecture and contracts that the
 current implementation follows.

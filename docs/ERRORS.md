@@ -40,6 +40,8 @@ Return when credentials do not authenticate successfully.
 Typical cases:
 
 - login flow cannot find the user
+- username login is disabled
+- username login cannot find the user
 - wrong password
 - unknown refresh token presented to refresh
 - reuse of a rotated refresh token during refresh
@@ -98,8 +100,14 @@ Return when input fails domain validation.
 Typical cases:
 
 - malformed email
+- invalid username format
+- invalid display name format
+- invalid login identifier format
 - invalid password input shape
 - invalid slug or role name format
+- username supplied during registration while username registration is disabled
+- display name supplied during registration while display-name registration is disabled
+- duplicate username during registration
 
 The message should be practical and implementation-useful, not transport-formatted.
 
@@ -149,10 +157,26 @@ commitment.
 
 ## Login
 
+- invalid login identifier returns `AuthError::ValidationError(_)`
 - missing-user login returns `AuthError::InvalidCredentials`
+- username login disabled returns `AuthError::InvalidCredentials`
+- username not found returns `AuthError::InvalidCredentials`
 - wrong-password login returns `AuthError::InvalidCredentials`
 - locked user login returns `AuthError::AccountLocked`
 - disabled user login currently returns `AuthError::AccountLocked`
+
+Disabled username login, missing username, and wrong password intentionally
+collapse to `InvalidCredentials` so callers cannot use the login response to
+enumerate whether username login is enabled or whether a tenant-scoped username
+exists.
+
+## Register
+
+- invalid username format returns `AuthError::ValidationError(_)`
+- invalid display name format returns `AuthError::ValidationError(_)`
+- username supplied while username registration is disabled returns `AuthError::ValidationError(_)`
+- display name supplied while display-name registration is disabled returns `AuthError::ValidationError(_)`
+- duplicate username in the tenant returns `AuthError::ValidationError(_)`
 
 ## Refresh
 
