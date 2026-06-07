@@ -10,6 +10,9 @@ fn all_expected_variants_are_constructible() {
         AuthError::SessionExpired,
         AuthError::TenantNotFound,
         AuthError::PermissionDenied,
+        AuthError::OAuthIdentityAlreadyLinked,
+        AuthError::OAuthIdentityAlreadyLinkedToSelf,
+        AuthError::UserNotFoundOrInactive,
     ];
 
     for variant in variants {
@@ -24,6 +27,35 @@ fn payload_variants_have_expected_shape() {
 
     assert!(matches!(validation_error, AuthError::ValidationError(_)));
     assert!(matches!(internal_error, AuthError::Internal(_)));
+}
+
+#[test]
+fn oauth_variants_have_transport_agnostic_display_messages() {
+    assert_eq!(
+        AuthError::OAuthIdentityAlreadyLinked.to_string(),
+        "OAuth identity already linked"
+    );
+    assert_eq!(
+        AuthError::OAuthIdentityAlreadyLinkedToSelf.to_string(),
+        "OAuth identity already linked to this user"
+    );
+    assert_eq!(
+        AuthError::UserNotFoundOrInactive.to_string(),
+        "user not found or inactive"
+    );
+}
+
+#[test]
+fn provider_disabled_is_not_an_auth_error_variant() {
+    let variants = [
+        AuthError::OAuthIdentityAlreadyLinked.to_string(),
+        AuthError::OAuthIdentityAlreadyLinkedToSelf.to_string(),
+        AuthError::UserNotFoundOrInactive.to_string(),
+    ];
+
+    assert!(!variants
+        .iter()
+        .any(|message| message == "provider disabled"));
 }
 
 #[test]
