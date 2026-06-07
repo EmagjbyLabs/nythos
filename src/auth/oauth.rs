@@ -1,6 +1,9 @@
+use std::time::SystemTime;
+
 use crate::{
-    ExternalIdentityRepository, OAuthProviderKind, TenantOAuthProviderConfigPort, UserId,
-    UserRepository, VerifiedExternalProfile,
+    AuthError, ExternalIdentityRepository, NythosResult, OAuthProviderKind, TenantId,
+    TenantOAuthProviderConfigPort, User, UserId, UserRepository, UserStatus,
+    VerifiedExternalProfile,
 };
 
 /// The domain outcome of resolving an OAuth login attempt.
@@ -80,5 +83,78 @@ where
 
     pub fn oauth_config_port(&self) -> &'a C {
         self.oauth_config_port
+    }
+
+    /// Resolves the domain outcome for an OAuth login attempt.
+    ///
+    /// This method does not create users, link external identities, or issue
+    /// sessions. It only decides what should happen next based on tenant
+    /// provider configuration, existing external identity links, verified email
+    /// matching, and account status.
+    pub async fn resolve_login(
+        &self,
+        tenant_id: TenantId,
+        profile: VerifiedExternalProfile,
+        now: SystemTime,
+    ) -> NythosResult<OAuthLoginOutcome> {
+        let provider_kind = profile.provider_kind();
+
+        let Some(config) = self
+            .oauth_config_port
+            .load_provider_config(tenant_id, provider_kind)
+            .await?
+        else {
+            return Ok(OAuthLoginOutcome::ProviderDisabled { provider_kind });
+        };
+
+        if !config.is_enabled() {
+            return Ok(OAuthLoginOutcome::ProviderDisabled { provider_kind });
+        }
+
+        if let Some(identity) = self
+            .identity_repository
+            .find_by_provider(tenant_id, provider_kind, profile.provider_subject())
+            .await?
+        {
+            let user = self
+                .user_repository
+                .find_by_id(tenant_id, identity.user_id())
+                .await?
+                .ok_or(AuthError::UserNotFoundOrInactive)?;
+
+            Self::ensure_user_is_active(&user)?;
+
+            self.identity_repository
+                .touch(tenant_id, provider_kind, profile.provider_subject(), now)
+                .await?;
+
+            return Ok(OAuthLoginOutcome::ExistingIdentityLogin {
+                user_id: identity.user_id(),
+            });
+        }
+
+        if let Some(email) = profile.verified_email()
+            && let Some(user) = self.user_repository.find_by_email(tenant_id, email).await?
+        {
+            Self::ensure_user_is_active(&user)?;
+
+            return Ok(OAuthLoginOutcome::LinkRequired {
+                user_id: user.id(),
+                profile,
+            });
+        }
+
+        Ok(OAuthLoginOutcome::RegistrationRequired {
+            profile,
+            registration_allowed: config.registration_allowed(),
+        })
+    }
+
+    fn ensure_user_is_active(user: &User) -> NythosResult<()> {
+        if user.status() != UserStatus::Active {
+            return Err(AuthError::UserNotFoundOrInactive);
+        }
+
+        Ok(())
     }
 }
