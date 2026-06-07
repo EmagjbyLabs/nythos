@@ -2,7 +2,8 @@ mod support;
 
 use futures::executor::block_on;
 use nythos_core::{
-    DisplayName, NewUser, PasswordHash, TenantId, UserCredentials, UserRepository, Username,
+    AuthError, DisplayName, NewUser, PasswordHash, TenantId, UserCredentials, UserRepository,
+    Username,
 };
 use support::{InMemoryUserRepository, fixtures};
 
@@ -112,6 +113,211 @@ fn contract_preserves_optional_profile_fields_during_creation() {
         assert_eq!(created.email(), &email);
         assert_eq!(created.username(), Some(&username));
         assert_eq!(created.display_name(), Some(&display_name));
+    });
+}
+
+#[test]
+fn find_by_username_returns_none_when_absent() {
+    block_on(async {
+        let repo = InMemoryUserRepository::new();
+        let result = repo
+            .find_by_username(
+                TenantId::generate(),
+                &Username::parse("missing_user").unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_none());
+    });
+}
+
+#[test]
+fn find_by_username_returns_user_when_present() {
+    block_on(async {
+        let repo = InMemoryUserRepository::new();
+        let tenant_id = TenantId::generate();
+        let username = Username::parse("Gencho_XD").unwrap();
+
+        let created = repo
+            .create(
+                tenant_id,
+                NewUser::with_profile(fixtures::canonical_email(), Some(username.clone()), None),
+                PasswordHash::new("hashed-password").unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let found = repo
+            .find_by_username(tenant_id, &username)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(found.id(), created.id());
+        assert_eq!(found.username(), Some(&username));
+    });
+}
+
+#[test]
+fn find_by_username_respects_tenant_scope() {
+    block_on(async {
+        let repo = InMemoryUserRepository::new();
+        let tenant_a = TenantId::generate();
+        let tenant_b = TenantId::generate();
+        let username = Username::parse("Gencho_XD").unwrap();
+
+        repo.create(
+            tenant_a,
+            NewUser::with_profile(fixtures::canonical_email(), Some(username.clone()), None),
+            PasswordHash::new("hashed-password").unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            repo.find_by_username(tenant_a, &username)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            repo.find_by_username(tenant_b, &username)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    });
+}
+
+#[test]
+fn find_credentials_by_username_returns_none_when_absent() {
+    block_on(async {
+        let repo = InMemoryUserRepository::new();
+        let credentials = repo
+            .find_credentials_by_username(
+                TenantId::generate(),
+                &Username::parse("missing_user").unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert!(credentials.is_none());
+    });
+}
+
+#[test]
+fn find_credentials_by_username_returns_credentials_when_present() {
+    block_on(async {
+        let repo = InMemoryUserRepository::new();
+        let tenant_id = TenantId::generate();
+        let username = Username::parse("Gencho_XD").unwrap();
+        let password_hash = PasswordHash::new("hashed-password").unwrap();
+
+        let created = repo
+            .create(
+                tenant_id,
+                NewUser::with_profile(fixtures::canonical_email(), Some(username.clone()), None),
+                password_hash.clone(),
+            )
+            .await
+            .unwrap();
+
+        let credentials = repo
+            .find_credentials_by_username(tenant_id, &username)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(credentials.user().id(), created.id());
+        assert_eq!(credentials.password_hash(), &password_hash);
+    });
+}
+
+#[test]
+fn find_credentials_by_username_respects_tenant_scope() {
+    block_on(async {
+        let repo = InMemoryUserRepository::new();
+        let tenant_a = TenantId::generate();
+        let tenant_b = TenantId::generate();
+        let username = Username::parse("Gencho_XD").unwrap();
+
+        repo.create(
+            tenant_a,
+            NewUser::with_profile(fixtures::canonical_email(), Some(username.clone()), None),
+            PasswordHash::new("hashed-password").unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            repo.find_credentials_by_username(tenant_a, &username)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            repo.find_credentials_by_username(tenant_b, &username)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    });
+}
+
+#[test]
+fn create_rejects_duplicate_username_inside_same_tenant() {
+    block_on(async {
+        let repo = InMemoryUserRepository::new();
+        let tenant_id = TenantId::generate();
+        let username = Username::parse("Gencho_XD").unwrap();
+
+        repo.create(
+            tenant_id,
+            NewUser::with_profile(fixtures::canonical_email(), Some(username.clone()), None),
+            PasswordHash::new("hashed-password").unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let duplicate = repo
+            .create(
+                tenant_id,
+                NewUser::with_profile(fixtures::alternate_email(), Some(username), None),
+                PasswordHash::new("another-hash").unwrap(),
+            )
+            .await;
+
+        assert!(matches!(duplicate, Err(AuthError::ValidationError(_))));
+    });
+}
+
+#[test]
+fn create_allows_same_username_in_different_tenants() {
+    block_on(async {
+        let repo = InMemoryUserRepository::new();
+        let tenant_a = TenantId::generate();
+        let tenant_b = TenantId::generate();
+        let username = Username::parse("Gencho_XD").unwrap();
+
+        repo.create(
+            tenant_a,
+            NewUser::with_profile(fixtures::canonical_email(), Some(username.clone()), None),
+            PasswordHash::new("hashed-password").unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let created = repo
+            .create(
+                tenant_b,
+                NewUser::with_profile(fixtures::canonical_email(), Some(username.clone()), None),
+                PasswordHash::new("another-hash").unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(created.username(), Some(&username));
     });
 }
 

@@ -94,10 +94,21 @@ impl UserCredentials {
 ///
 /// Duplicate-user and not-found behavior should be expressed through the core
 /// result model and return shapes, rather than leaking database-specific errors.
+///
+/// Username lookup methods are explicit on purpose. Services parse
+/// `LoginIdentifier` and enforce tenant auth policy before choosing which
+/// repository method to call. Repositories only resolve concrete lookup keys.
 pub trait UserRepository {
     /// Finds a user by normalized email within a specific tenant.
     async fn find_by_email(&self, tenant_id: TenantId, email: &Email)
     -> NythosResult<Option<User>>;
+
+    // Finds a user by normalized username within a specific tenant.
+    async fn find_by_username(
+        &self,
+        tenant_id: TenantId,
+        username: &Username,
+    ) -> NythosResult<Option<User>>;
 
     /// Finds a user by ID within a specific tenant.
     async fn find_by_id(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Option<User>>;
@@ -110,6 +121,17 @@ pub trait UserRepository {
         &self,
         tenant_id: TenantId,
         email: &Email,
+    ) -> NythosResult<Option<UserCredentials>>;
+
+    /// Finds a user and stored password hash by normalized username within a specific tenant.
+    ///
+    /// This is used only after a service has parsed `LoginIdentifier::Username`
+    /// and enforced tenant username-login policy. This method must not make
+    /// tenant auth policy decisions.
+    async fn find_credentials_by_username(
+        &self,
+        tenant_id: TenantId,
+        username: &Username,
     ) -> NythosResult<Option<UserCredentials>>;
 
     /// Creates a new user in the given tenant using an already-validated email

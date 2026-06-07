@@ -44,6 +44,21 @@ impl UserRepository for InMemoryUserRepository {
             .map(|(_, (user, _))| user.clone()))
     }
 
+    async fn find_by_username(
+        &self,
+        tenant_id: TenantId,
+        username: &nythos_core::Username,
+    ) -> NythosResult<Option<User>> {
+        Ok(self
+            .users
+            .borrow()
+            .iter()
+            .find(|((stored_tenant, _), (user, _))| {
+                *stored_tenant == tenant_id && user.username() == Some(username)
+            })
+            .map(|(_, (user, _))| user.clone()))
+    }
+
     async fn find_by_id(&self, tenant_id: TenantId, user_id: UserId) -> NythosResult<Option<User>> {
         Ok(self
             .users
@@ -67,6 +82,21 @@ impl UserRepository for InMemoryUserRepository {
             .map(|(_, (user, hash))| UserCredentials::new(user.clone(), hash.clone())))
     }
 
+    async fn find_credentials_by_username(
+        &self,
+        tenant_id: TenantId,
+        username: &nythos_core::Username,
+    ) -> NythosResult<Option<UserCredentials>> {
+        Ok(self
+            .users
+            .borrow()
+            .iter()
+            .find(|((stored_tenant, _), (user, _))| {
+                *stored_tenant == tenant_id && user.username() == Some(username)
+            })
+            .map(|(_, (user, hash))| UserCredentials::new(user.clone(), hash.clone())))
+    }
+
     async fn create(
         &self,
         tenant_id: TenantId,
@@ -80,6 +110,14 @@ impl UserRepository for InMemoryUserRepository {
         {
             return Err(AuthError::ValidationError(
                 "user with email already exists in tenant".to_owned(),
+            ));
+        }
+
+        if let Some(username) = new_user.username()
+            && self.find_by_username(tenant_id, username).await?.is_some()
+        {
+            return Err(AuthError::ValidationError(
+                "user with username already exists in tenant".to_owned(),
             ));
         }
 
