@@ -15,6 +15,8 @@ optionally return signed auth material.
 - tenant ID
 - email input
 - raw password input
+- optional raw username input
+- optional raw display-name input
 - issue time plus access-token and session TTLs
 - `auto_sign_in` flag
 
@@ -22,18 +24,25 @@ optionally return signed auth material.
 
 1. Validate and construct `Email`.
 2. Validate and construct `Password`.
-3. Check whether a user with that email already exists in the tenant through `UserRepository::find_by_email`.
-4. Hash the password through `PasswordHasher`.
-5. Persist the new user through `UserRepository::create` using `NewUser` and `PasswordHash`.
-6. If `auto_sign_in` is disabled, return `RegisterResult` with the created user and no auth material.
-7. If `auto_sign_in` is enabled, create a new `Session`, opaque `RefreshToken`, and access `Claims`.
-8. Sign a short-lived access token through `TokenSigner`.
-9. Persist the session and refresh token through `SessionStore::create_session` using `SessionRecord`.
-10. Return `RegisterResult` with the created user plus `RegisterAuthMaterial`.
+3. Load tenant auth policy through `TenantPolicyPort::load_auth_policy`.
+4. If raw username is present, reject with `ValidationError` when username registration is disabled.
+5. If raw username is present and allowed, validate and construct `Username`.
+6. If raw display name is present, reject with `ValidationError` when display-name registration is disabled.
+7. If raw display name is present and allowed, validate and construct `DisplayName`.
+8. Check whether a user with that email already exists in the tenant through `UserRepository::find_by_email`.
+9. If username is present, check whether that username already exists in the tenant through `UserRepository::find_by_username`.
+10. Hash the password through `PasswordHasher`.
+11. Persist the new user through `UserRepository::create` using `NewUser::with_profile` and `PasswordHash`.
+12. If `auto_sign_in` is disabled, return `RegisterResult` with the created user and no auth material.
+13. If `auto_sign_in` is enabled, create a new `Session`, opaque `RefreshToken`, and access `Claims`.
+14. Sign a short-lived access token through `TokenSigner`.
+15. Persist the session and refresh token through `SessionStore::create_session` using `SessionRecord`.
+16. Return `RegisterResult` with the created user plus `RegisterAuthMaterial`.
 
 ### Ports Used
 
 - `UserRepository`
+- `TenantPolicyPort`
 - `PasswordHasher`
 - `SessionStore`
 - `TokenSigner`
@@ -48,12 +57,19 @@ optionally return signed auth material.
 
 - invalid email -> `ValidationError`
 - invalid password input -> `ValidationError`
-- duplicate user in tenant -> `ValidationError`
+- invalid username input -> `ValidationError`
+- invalid display-name input -> `ValidationError`
+- username supplied while username registration is disabled -> `ValidationError`
+- display name supplied while display-name registration is disabled -> `ValidationError`
+- duplicate email in tenant -> `ValidationError`
+- duplicate username in tenant -> `ValidationError`
 - hashing, signing, or persistence failures -> propagated core error from the dependency
 
 ### Security Notes
 
 - duplicate detection must be tenant-scoped
+- optional profile fields are accepted only after typed tenant auth policy allows them
+- repositories do not enforce tenant auth policy; services enforce it before lookup and create calls
 - password is hashed before storage
 - raw password must never be persisted as-is
 - refresh tokens are opaque
@@ -68,28 +84,32 @@ roles, and issues fresh session auth material.
 
 - `LoginInput`
 - tenant ID
-- email input
+- raw login identifier input
 - raw password input
 - issue time plus access-token and session TTLs
 
 ### Ordered Steps
 
-1. Validate and construct `Email`.
+1. Parse `LoginIdentifier` from the raw identifier string.
 2. Validate and construct `Password`.
-3. Look up credentials by email within the tenant through `UserRepository::find_credentials_by_email`.
-4. Check whether the returned user can authenticate.
-5. Verify the password through `PasswordHasher`.
-6. Load tenant-scoped roles through `RoleRepository::get_roles_for_user`.
-7. Create a new `Session`.
-8. Create an opaque `RefreshToken`.
-9. Build access `Claims` from the authenticated user and tenant.
-10. Sign a short-lived access token through `TokenSigner`.
-11. Persist the session and refresh token through `SessionStore::create_session` using `SessionRecord`.
-12. Return `LoginAuthMaterial`.
+3. Load tenant auth policy through `TenantPolicyPort::load_auth_policy`.
+4. If the identifier is `Email`, look up credentials through `UserRepository::find_credentials_by_email`.
+5. If the identifier is `Username` and username login is disabled, return `AuthError::InvalidCredentials` without calling username credential lookup.
+6. If the identifier is `Username` and username login is enabled, look up credentials through `UserRepository::find_credentials_by_username`.
+7. Check whether the returned user can authenticate.
+8. Verify the password through `PasswordHasher`.
+9. Load tenant-scoped roles through `RoleRepository::get_roles_for_user`.
+10. Create a new `Session`.
+11. Create an opaque `RefreshToken`.
+12. Build access `Claims` from the authenticated user and tenant.
+13. Sign a short-lived access token through `TokenSigner`.
+14. Persist the session and refresh token through `SessionStore::create_session` using `SessionRecord`.
+15. Return `LoginAuthMaterial`.
 
 ### Ports Used
 
 - `UserRepository`
+- `TenantPolicyPort`
 - `PasswordHasher`
 - `RoleRepository`
 - `SessionStore`
@@ -107,7 +127,9 @@ roles, and issues fresh session auth material.
 
 ### Failure Cases
 
-- user not found -> `InvalidCredentials`
+- invalid login identifier -> `ValidationError`
+- user not found by email or username -> `InvalidCredentials`
+- username login disabled -> `InvalidCredentials`
 - account locked -> `AccountLocked`
 - disabled account -> `AccountLocked`
 - password mismatch -> `InvalidCredentials`
@@ -115,7 +137,9 @@ roles, and issues fresh session auth material.
 
 ### Security Notes
 
-- missing-user and wrong-password cases both collapse to `InvalidCredentials`
+- missing-user, disabled username login, and wrong-password cases all collapse to `InvalidCredentials`
+- disabled username login does not call `UserRepository::find_credentials_by_username`
+- login branches on `LoginIdentifier`; there is no generic credentials-by-identifier repository method
 - lockout checks happen before issuing new credentials
 - role loading is tenant-scoped only
 - access tokens are short-lived and signed

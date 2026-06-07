@@ -1,10 +1,12 @@
 # Public API Audit
 
-This document inventories the current public surface of `nythos-core` ahead of a future `v0.1` crates.io publish.
+This document inventories the current public surface of `nythos-core`, including the implemented `v0.2.0` identity profile and login identifier work.
 
 It records what looks intentionally public today and what should be revisited only in a later explicit API cleanup window.
 
-This issue does not change visibility, remove exports, rename public types, or change runtime behavior.
+The `v0.2.0` identity profile work adds public domain types and updates service
+and port signatures. Compatibility notes below call out preserved constructors
+and source-breaking adapter-facing changes.
 
 ## High-level Summary
 
@@ -30,14 +32,14 @@ Unless noted otherwise, each item below is available at `nythos_core::<Item>` an
 | `AccessToken`              | intentionally public        | Core signed-token value used by `TokenSigner`, auth flow outputs, and callers inspecting issued auth material.                                         |
 | `Claims`                   | intentionally public        | Structured claim set used by signing and verification boundaries.                                                                                      |
 | `LoginAuthMaterial`        | intentionally public        | Direct login-flow output returned to callers.                                                                                                          |
-| `LoginInput`               | intentionally public        | Callers construct this to run login orchestration.                                                                                                     |
+| `LoginInput`               | intentionally public        | Callers construct this to run login orchestration; it now stores a raw identifier internally.                                                          |
 | `LoginService`             | intentionally public        | Main login orchestration entry point.                                                                                                                  |
 | `PasswordHash`             | intentionally public        | Required by `PasswordHasher`, `UserRepository`, and credential-loading boundaries.                                                                     |
 | `RefreshAuthMaterial`      | intentionally public        | Direct refresh-flow output returned to callers.                                                                                                        |
 | `RefreshInput`             | intentionally public        | Callers construct this to run refresh orchestration.                                                                                                   |
 | `RefreshService`           | intentionally public        | Main refresh orchestration entry point.                                                                                                                |
 | `RegisterAuthMaterial`     | intentionally public        | Returned from `RegisterResult` when auto-sign-in is enabled.                                                                                           |
-| `RegisterInput`            | intentionally public        | Callers construct this to run registration orchestration.                                                                                              |
+| `RegisterInput`            | intentionally public        | Callers construct this to run registration orchestration; it accepts optional raw profile fields.                                                       |
 | `RegisterResult`           | intentionally public        | Register-flow return type exposed directly to callers.                                                                                                 |
 | `RegisterService`          | intentionally public        | Main registration orchestration entry point.                                                                                                           |
 | `RevokeAllSessionsInput`   | intentionally public        | Callers construct this to revoke all sessions for a tenant-scoped user.                                                                                |
@@ -52,11 +54,15 @@ Unless noted otherwise, each item below is available at `nythos_core::<Item>` an
 | Item             | Assessment                  | Notes                                                                                                        |
 | ---------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `Email`          | intentionally public        | Core validated value object used by callers and port implementations.                                        |
+| `Username`       | intentionally public        | Normalized lowercase ASCII lookup identifier used by user profile and optional username login.                |
+| `DisplayName`    | intentionally public        | Human-readable profile label; not used for login lookup.                                                     |
+| `LoginIdentifier` | intentionally public      | Typed login identifier enum over email and username.                                                         |
 | `Password`       | intentionally public        | Required by the public `PasswordHasher` boundary.                                                            |
 | `RoleId`         | intentionally public        | Tenant-scoped RBAC identity used in public domain and port APIs.                                             |
 | `SessionId`      | intentionally public        | Required by session, revocation, and port APIs.                                                              |
-| `Tenant`         | likely intentionally public | Public identity model, though not currently used by the main auth service orchestration paths.               |
+| `Tenant`         | likely intentionally public | Public identity model carrying slug, optional settings, and auth policy.                                    |
 | `TenantId`       | intentionally public        | Required by domain models, services, and port traits.                                                        |
+| `TenantAuthPolicy` | intentionally public      | Typed auth policy embedded in `Tenant` and loaded by auth services.                                         |
 | `TenantSettings` | likely intentionally public | Public because `Tenant` exposes it directly, but it is lower-pressure than the auth/session/RBAC core types. |
 | `User`           | intentionally public        | Central domain identity returned by flows and used by repositories.                                          |
 | `UserId`         | intentionally public        | Required across domain models, services, and repositories.                                                   |
@@ -82,8 +88,9 @@ Unless noted otherwise, each item below is available at `nythos_core::<Item>` an
 | `SessionRecord`        | intentionally public | Helper payload required by `SessionStore` session create and lookup methods. |
 | `SessionStore`         | intentionally public | Adapter-facing trait implemented outside the crate.                          |
 | `TokenSigner`          | intentionally public | Adapter-facing trait implemented outside the crate.                          |
-| `UserCredentials`      | intentionally public | Helper payload required by `UserRepository::find_credentials_by_email`.      |
+| `UserCredentials`      | intentionally public | Helper payload required by email and username credential lookup methods.      |
 | `UserRepository`       | intentionally public | Adapter-facing trait implemented outside the crate.                          |
+| `TenantPolicyPort`     | intentionally public | Adapter-facing trait for loading typed tenant auth policy.                    |
 
 ### RBAC
 
@@ -145,8 +152,8 @@ Assessment:
 Module-root re-exports:
 
 - typed IDs: `UserId`, `TenantId`, `SessionId`, `RoleId`
-- value objects: `Email`, `Password`
-- identity models: `User`, `UserStatus`, `Tenant`, `TenantSettings`
+- value objects: `Email`, `Password`, `Username`, `DisplayName`, `LoginIdentifier`
+- identity models: `User`, `UserStatus`, `Tenant`, `TenantSettings`, `TenantAuthPolicy`
 
 Public submodules:
 
@@ -163,7 +170,7 @@ Assessment:
 
 Module-root re-exports:
 
-- traits: `UserRepository`, `RoleRepository`, `SessionStore`, `PasswordHasher`, `TokenSigner`, `RevocationChecker`
+- traits: `UserRepository`, `TenantPolicyPort`, `RoleRepository`, `SessionStore`, `PasswordHasher`, `TokenSigner`, `RevocationChecker`
 - helper payloads: `NewUser`, `UserCredentials`, `RoleAssignmentInput`, `SessionRecord`, `RefreshTokenRotation`
 
 Public submodules:
@@ -172,6 +179,7 @@ Public submodules:
 - `role`
 - `session`
 - `security`
+- `tenant_policy`
 
 Assessment:
 
@@ -225,6 +233,9 @@ Types users of the crate need to construct, validate, inspect, and pass around.
 Current examples:
 
 - `Email`
+- `Username`
+- `DisplayName`
+- `LoginIdentifier`
 - `Password`
 - `UserId`
 - `TenantId`
@@ -234,6 +245,7 @@ Current examples:
 - `UserStatus`
 - `Tenant`
 - `TenantSettings`
+- `TenantAuthPolicy`
 - `Permission`
 - `Role`
 - `RoleAssignment`
@@ -251,6 +263,7 @@ Types and traits outer implementations need in order to implement storage, signi
 Current examples:
 
 - `UserRepository`
+- `TenantPolicyPort`
 - `RoleRepository`
 - `SessionStore`
 - `PasswordHasher`
@@ -302,13 +315,14 @@ These items are strongly justified by the current implemented port boundaries an
 | Item                   | Why it needs to be public today                                                                  |
 | ---------------------- | ------------------------------------------------------------------------------------------------ |
 | `UserRepository`       | Outer storage layer implements tenant-scoped user lookup and creation.                           |
+| `TenantPolicyPort`     | Outer policy layer loads typed tenant auth policy for service-side decisions.                     |
 | `RoleRepository`       | Outer storage layer implements tenant-scoped role lookup and mutation.                           |
 | `SessionStore`         | Outer storage layer implements session creation, refresh-token lookup, rotation, and revocation. |
 | `PasswordHasher`       | Outer security layer hashes and verifies `Password` values into `PasswordHash`.                  |
 | `TokenSigner`          | Outer security layer signs and verifies `Claims` into `AccessToken`.                             |
 | `RevocationChecker`    | Outer request-time or refresh-time enforcement checks session revocation status.                 |
-| `NewUser`              | Required input to `UserRepository::create`.                                                      |
-| `UserCredentials`      | Required output from `UserRepository::find_credentials_by_email`.                                |
+| `NewUser`              | Required input to `UserRepository::create`; now carries optional username and display name.       |
+| `UserCredentials`      | Required output from email and username credential lookup methods.                                |
 | `RoleAssignmentInput`  | Required input to `RoleRepository::assign_role` and `RoleRepository::revoke_role`.               |
 | `SessionRecord`        | Required input and output shape around `SessionStore` create and refresh-token lookup.           |
 | `RefreshTokenRotation` | Required input to `SessionStore::rotate_refresh_token`.                                          |
@@ -318,6 +332,10 @@ These items are strongly justified by the current implemented port boundaries an
 | `SessionId`            | Used by session and revocation boundaries.                                                       |
 | `RoleId`               | Used by RBAC boundaries.                                                                         |
 | `Email`                | Used by repository boundaries and user identity.                                                 |
+| `Username`             | Used by repository boundaries and optional user identity.                                        |
+| `DisplayName`          | Used by optional user profile identity.                                                          |
+| `LoginIdentifier`      | Used by login service branching before repository lookup.                                        |
+| `TenantAuthPolicy`     | Used by `Tenant` and `TenantPolicyPort` for typed auth policy.                                   |
 | `Password`             | Used by `PasswordHasher`.                                                                        |
 | `PasswordHash`         | Used by `PasswordHasher`, `UserRepository`, and `UserCredentials`.                               |
 | `AccessToken`          | Used by `TokenSigner` and flow outputs.                                                          |
@@ -340,7 +358,7 @@ Current public submodules:
 
 Recommendation:
 
-- Keep as-is for `v0.1`.
+- Keep as-is for `v0.2.0`.
 - Treat `nythos_core::auth::*` module-root re-exports as the primary supported `auth` surface.
 - In a later explicit cleanup window, consider making the flow-oriented submodules private while preserving the `auth` module-root re-exports.
 
@@ -356,7 +374,7 @@ Current examples:
 
 Recommendation:
 
-- Keep as-is for `v0.1`.
+- Keep as-is for `v0.2.0`.
 - In a later explicit cleanup window, consider narrowing constructors for output-only types if callers are expected to receive these mostly from services rather than construct them directly.
 
 ### 3. `Claims::new` plus `TokenPurpose`
@@ -369,7 +387,7 @@ Current situation:
 
 Recommendation:
 
-- Keep both public for `v0.1`.
+- Keep both public for `v0.2.0`.
 - Later decide whether `Claims::new` should remain a general public constructor or whether `Claims::access` is the intended stable constructor for most callers.
 - Later document whether `TokenPurpose` is expected to grow or should stay minimal.
 
@@ -378,12 +396,58 @@ Recommendation:
 Current situation:
 
 - `TenantSettings` is public because `Tenant::with_settings` and `Tenant::settings` expose it directly.
-- It is not used by the current auth flow services or port traits.
+- It is not used for auth policy decisions.
+- Current auth flow services use typed `TenantAuthPolicy` loaded through `TenantPolicyPort`.
 
 Recommendation:
 
-- Keep as-is for `v0.1`.
+- Keep as-is for `v0.2.0`.
 - Revisit only if the crate later narrows tenant metadata scope or moves plain tenant settings out of the core domain model.
+
+## v0.2.0 API Notes
+
+New public domain API:
+
+- `Username`
+- `DisplayName`
+- `LoginIdentifier`
+- `TenantAuthPolicy`
+
+Updated public domain API:
+
+- `User` now carries optional `Username` and `DisplayName`
+- `Tenant` now embeds `TenantAuthPolicy` alongside slug and optional `TenantSettings`
+
+Updated adapter-facing API:
+
+- `TenantPolicyPort` was added
+- `NewUser` now supports optional profile fields
+- `UserRepository` now includes `find_by_username` and `find_credentials_by_username`
+
+Updated flow or service API:
+
+- `RegisterInput` accepts optional raw username and display-name fields
+- `RegisterService::new` now requires a `TenantPolicyPort` dependency
+- `LoginInput` now stores a raw identifier string internally
+- `LoginInput::new_with_identifier` was added
+- `LoginService::new` now requires a `TenantPolicyPort` dependency
+
+Compatibility notes:
+
+- `User::new` is preserved
+- `User::with_status` is preserved
+- `NewUser::new` is preserved
+- `RegisterInput::new` is preserved
+- `LoginInput::new(..., email: String, ...)` is preserved as a compatibility constructor
+- `LoginInput::email()` is preserved as a compatibility alias returning the raw identifier string
+- `UserRepository` is source-breaking for implementors because it adds username lookup methods
+- `RegisterService::new` and `LoginService::new` are source-breaking for callers because they now require `TenantPolicyPort`
+
+Explicit non-API in `v0.2.0`:
+
+- no `find_credentials_by_identifier` repository method
+- no OAuth provider or OAuth flow API
+- no HTTP handlers, database adapters, migrations, gateway code, worker code, or concrete crypto library bindings
 
 ### 5. Stable path ambiguity
 
@@ -400,18 +464,18 @@ Recommendation:
 
 ## Recommendations for future API cleanup
 
-- Keep the current crate-root re-exports as the main ergonomic API for `v0.1`.
+- Keep the current crate-root re-exports as the main ergonomic API for `v0.2.0`.
 - Keep `nythos_core::auth::*`, `nythos_core::domain::*`, and `nythos_core::ports::*` module-root re-exports as the grouped public surface.
 - Consider making `auth` implementation submodules private later while preserving module-root re-exports.
 - Consider documenting stable paths explicitly: crate root and module-root re-exports first, deeper implementation submodule paths unspecified unless later committed.
 - Consider narrowing public constructors for output-only wrappers and result wrappers in a later explicit cleanup window.
-- Keep `TokenPurpose` public for `v0.1`, then revisit only if token-purpose expansion or claim-construction rules become a real API pressure point.
-- Keep `TenantSettings` public for `v0.1`, then revisit only if tenant metadata scope is intentionally reduced.
+- Keep `TokenPurpose` public for `v0.2.0`, then revisit only if token-purpose expansion or claim-construction rules become a real API pressure point.
+- Keep `TenantSettings` public for `v0.2.0`, then revisit only if tenant metadata scope is intentionally reduced.
 - Do not add `#[doc(hidden)]` in this issue; only consider it in a later explicit compatibility cleanup if a public item must remain exported but should be deemphasized.
-- Do not add a prelude for `v0.1`; only consider one later if real usage pressure shows repeated import friction.
+- Do not add a prelude for `v0.2.0`; only consider one later if real usage pressure shows repeated import friction.
 
 ## Conclusion
 
-The current public surface is already close to publishable for `v0.1`.
+The current public surface is aligned with the implemented `v0.2.0` identity profile and login identifier work.
 
 The public crate-root items mostly look intentional and aligned with the implemented domain, adapter, and orchestration boundaries. The main future cleanup work is not removing major types, but tightening path stability and deciding whether a few constructors and implementation-shaped submodule paths should remain part of the long-term supported API.
