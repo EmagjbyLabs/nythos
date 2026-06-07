@@ -1,9 +1,8 @@
 use std::time::SystemTime;
 
 use crate::{
-    AuthError, ExternalIdentityRepository, NythosResult, OAuthProviderKind, TenantId,
-    TenantOAuthProviderConfigPort, User, UserId, UserRepository, UserStatus,
-    VerifiedExternalProfile,
+    AuthError, ExternalIdentity, ExternalIdentityRepository, NythosResult, OAuthProviderKind,
+    TenantId, TenantOAuthProviderConfigPort, User, UserId, UserRepository, VerifiedExternalProfile,
 };
 
 /// The domain outcome of resolving an OAuth login attempt.
@@ -42,7 +41,7 @@ pub enum OAuthLoginOutcome {
 /// OAuth login/linking orchestration service.
 ///
 /// This service owns only domain decisions. It does not perform OAuth
-/// redirect, provider HTTP calls, token verification, user creation, or
+/// redirects, provider HTTP calls, token verification, user creation, or
 /// session issuance.
 pub struct OAuthLoginService<'a, I, U, C>
 where
@@ -133,15 +132,15 @@ where
             });
         }
 
-        if let Some(email) = profile.verified_email()
-            && let Some(user) = self.user_repository.find_by_email(tenant_id, email).await?
-        {
-            Self::ensure_user_is_active(&user)?;
+        if let Some(email) = profile.verified_email() {
+            if let Some(user) = self.user_repository.find_by_email(tenant_id, email).await? {
+                Self::ensure_user_is_active(&user)?;
 
-            return Ok(OAuthLoginOutcome::LinkRequired {
-                user_id: user.id(),
-                profile,
-            });
+                return Ok(OAuthLoginOutcome::LinkRequired {
+                    user_id: user.id(),
+                    profile,
+                });
+            }
         }
 
         Ok(OAuthLoginOutcome::RegistrationRequired {
@@ -150,8 +149,59 @@ where
         })
     }
 
+    /// Explicitly links a verified external profile to an existing active user.
+    ///
+    /// This method should be called only after gateway has obtained explicit
+    /// user consent. It does not create users, issue sessions, perform provider
+    /// verification, or re-check provider enablement.
+    pub async fn link_identity(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+        profile: VerifiedExternalProfile,
+        now: SystemTime,
+    ) -> NythosResult<ExternalIdentity> {
+        let user = self
+            .user_repository
+            .find_by_id(tenant_id, user_id)
+            .await?
+            .ok_or(AuthError::UserNotFoundOrInactive)?;
+
+        Self::ensure_user_is_active(&user)?;
+
+        if let Some(existing_identity) = self
+            .identity_repository
+            .find_by_provider(
+                tenant_id,
+                profile.provider_kind(),
+                profile.provider_subject(),
+            )
+            .await?
+        {
+            if existing_identity.user_id() == user_id {
+                return Err(AuthError::OAuthIdentityAlreadyLinkedToSelf);
+            }
+
+            return Err(AuthError::OAuthIdentityAlreadyLinked);
+        }
+
+        let identity = ExternalIdentity::new(
+            tenant_id,
+            user_id,
+            profile.provider_kind(),
+            profile.provider_subject(),
+            profile.email().cloned(),
+            profile.display_name().cloned(),
+            now,
+        )?;
+
+        self.identity_repository.link(identity.clone()).await?;
+
+        Ok(identity)
+    }
+
     fn ensure_user_is_active(user: &User) -> NythosResult<()> {
-        if user.status() != UserStatus::Active {
+        if !user.can_authenticate() {
             return Err(AuthError::UserNotFoundOrInactive);
         }
 
