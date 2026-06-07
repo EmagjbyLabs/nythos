@@ -11,6 +11,90 @@ use support::{
 };
 
 #[test]
+fn login_input_new_preserves_email_constructor_shape() {
+    let input = LoginInput::new(
+        TenantId::generate(),
+        fixtures::canonical_email_string(),
+        fixtures::canonical_password_string(),
+        fixtures::canonical_issued_at(),
+        fixtures::canonical_access_token_ttl(),
+        fixtures::canonical_session_ttl(),
+    );
+
+    assert_eq!(input.identifier(), fixtures::canonical_email_string());
+    assert_eq!(input.email(), fixtures::canonical_email_string());
+    assert_eq!(input.password(), fixtures::canonical_password_string());
+}
+
+#[test]
+fn login_input_new_stores_email_as_identifier_string() {
+    let email = fixtures::canonical_email_string();
+
+    let input = LoginInput::new(
+        TenantId::generate(),
+        email.clone(),
+        fixtures::canonical_password_string(),
+        fixtures::canonical_issued_at(),
+        fixtures::canonical_access_token_ttl(),
+        fixtures::canonical_session_ttl(),
+    );
+
+    assert_eq!(input.identifier(), email);
+    assert_eq!(input.email(), email);
+}
+
+#[test]
+fn login_input_new_with_identifier_stores_identifier_string() {
+    let input = LoginInput::new_with_identifier(
+        TenantId::generate(),
+        "gencho_xd".to_owned(),
+        fixtures::canonical_password_string(),
+        fixtures::canonical_issued_at(),
+        fixtures::canonical_access_token_ttl(),
+        fixtures::canonical_session_ttl(),
+    );
+
+    assert_eq!(input.identifier(), "gencho_xd");
+    assert_eq!(input.email(), "gencho_xd");
+}
+
+#[test]
+fn login_input_email_getter_is_compatibility_alias() {
+    let input = LoginInput::new_with_identifier(
+        TenantId::generate(),
+        "person_or_username".to_owned(),
+        fixtures::canonical_password_string(),
+        fixtures::canonical_issued_at(),
+        fixtures::canonical_access_token_ttl(),
+        fixtures::canonical_session_ttl(),
+    );
+
+    assert_eq!(input.email(), input.identifier());
+}
+
+#[test]
+fn login_input_getters_preserve_timing_and_ttls() {
+    let tenant_id = TenantId::generate();
+    let issued_at = fixtures::canonical_issued_at();
+    let access_token_ttl = fixtures::canonical_access_token_ttl();
+    let session_ttl = fixtures::canonical_session_ttl();
+
+    let input = LoginInput::new_with_identifier(
+        tenant_id,
+        "gencho_xd".to_owned(),
+        fixtures::canonical_password_string(),
+        issued_at,
+        access_token_ttl,
+        session_ttl,
+    );
+
+    assert_eq!(input.tenant_id(), tenant_id);
+    assert_eq!(input.issued_at(), issued_at);
+    assert_eq!(input.access_token_ttl(), access_token_ttl);
+    assert_eq!(input.session_ttl(), session_ttl);
+}
+
+#[test]
 fn login_validates_inbound_value_objects() {
     block_on(async {
         let users = InMemoryUserRepository::new();

@@ -10,7 +10,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct LoginInput {
     tenant_id: TenantId,
-    email: String,
+    identifier: String,
     password: String,
     issued_at: SystemTime,
     access_token_ttl: Duration,
@@ -28,7 +28,25 @@ impl LoginInput {
     ) -> Self {
         Self {
             tenant_id,
-            email,
+            identifier: email,
+            password,
+            issued_at,
+            access_token_ttl,
+            session_ttl,
+        }
+    }
+
+    pub fn new_with_identifier(
+        tenant_id: TenantId,
+        identifier: String,
+        password: String,
+        issued_at: SystemTime,
+        access_token_ttl: Duration,
+        session_ttl: Duration,
+    ) -> Self {
+        Self {
+            tenant_id,
+            identifier,
             password,
             issued_at,
             access_token_ttl,
@@ -40,8 +58,16 @@ impl LoginInput {
         self.tenant_id
     }
 
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+
+    /// Compatibility alias for the previous email-shaped login input.
+    ///
+    /// The returned value is the same raw login identifier string. New code
+    /// should prefer `identifier()`.
     pub fn email(&self) -> &str {
-        &self.email
+        &self.identifier
     }
 
     pub fn password(&self) -> &str {
