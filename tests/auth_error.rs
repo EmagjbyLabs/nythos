@@ -53,9 +53,11 @@ fn provider_disabled_is_not_an_auth_error_variant() {
         AuthError::UserNotFoundOrInactive.to_string(),
     ];
 
-    assert!(!variants
-        .iter()
-        .any(|message| message == "provider disabled"));
+    assert!(
+        !variants
+            .iter()
+            .any(|message| message == "provider disabled")
+    );
 }
 
 #[test]

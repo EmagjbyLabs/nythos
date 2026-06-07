@@ -16,10 +16,10 @@ pub mod rbac;
 pub mod session;
 
 pub use auth::{
-    AccessToken, Claims, LoginAuthMaterial, LoginInput, LoginService, PasswordHash,
-    RefreshAuthMaterial, RefreshInput, RefreshService, RegisterAuthMaterial, RegisterInput,
-    RegisterResult, RegisterService, RevokeAllSessionsInput, RevokeAllSessionsService,
-    RevokeResult, RevokeSessionInput, RevokeSessionService, TokenPurpose,
+    AccessToken, Claims, LoginAuthMaterial, LoginInput, LoginService, OAuthLoginOutcome,
+    OAuthLoginService, PasswordHash, RefreshAuthMaterial, RefreshInput, RefreshService,
+    RegisterAuthMaterial, RegisterInput, RegisterResult, RegisterService, RevokeAllSessionsInput,
+    RevokeAllSessionsService, RevokeResult, RevokeSessionInput, RevokeSessionService, TokenPurpose,
 };
 pub use domain::{
     DisplayName, Email, ExternalIdentity, LoginIdentifier, OAuthProviderKind, Password, RoleId,
